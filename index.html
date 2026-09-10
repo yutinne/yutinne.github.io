@@ -1798,6 +1798,9 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 const uid = () => 'x' + Math.random().toString(36).slice(2, 10);
 
 /* 排期模板：6大环节 · 子板块 · 任务 */
+/* 第28轮：列宽固化自用户「模板」项目（备份 x4adnof9y，2026-09-10）。
+   以前兜底用旧列宽，导致删除/改名「模板」项目后，新建项目的列宽和用户自己的模板不一致。 */
+const DEFAULT_TPL_COLWIDTHS = { 0: 118, 1: 254, 4: 83, 5: 152, 6: 158, 7: 97, 8: 278 };
 function makeRow(module, sub, name, owner, note) {
   return { id: uid(), module, sub, name, start: '', end: '', days: '', owner: owner || '', risk: '', riskManual: false, status: '未开始', statusState: 'todo', note: note || '' };
 }
@@ -1860,12 +1863,13 @@ function getDefaultExecTemplate() {
 /* 新建项目的初始排期表：若存在名为「模板」的项目，则克隆它的排期表结构
    （任务行 + 合并/格式 + 列宽行高 + 自定义列），行 id 全部重映射避免跨项目冲突；
    日期/天数/状态等排期数据重置为初始值（新项目从零排期，避免把模板项目的排期带进来）。
-   找不到模板项目时回退内置通用模板。 */
+   找不到「模板」项目时，回退到已固化的内置模板（DEFAULT_TPL_COLWIDTHS 列宽 + 下方 45 行任务），
+   第28轮起与用户模板项目完全一致，删除/改名「模板」项目不再影响新建项目。 */
 function getTemplateSchedule() {
   const tplProj = state.projects.find(p => (p.name || '').trim() === '模板');
   const tpl = tplProj && state.schedule[tplProj.id];
   const hasTpl = tpl && Array.isArray(tpl.exec) && tpl.exec.length > 0;
-  if (!hasTpl) return { exec: getDefaultExecTemplate(), format: {}, rowHeights: {}, colWidths: { 1: 229, 4: 93, 5: 152, 6: 140, 7: 104, 8: 272 }, extraCols: [] };
+  if (!hasTpl) return { exec: getDefaultExecTemplate(), format: {}, rowHeights: {}, colWidths: Object.assign({}, DEFAULT_TPL_COLWIDTHS), extraCols: [] };
   const idMap = {};
   const exec = tpl.exec.map(r => {
     const nid = uid();
