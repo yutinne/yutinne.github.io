@@ -1573,8 +1573,7 @@ async function decryptData(encObj, password) {
 /* 第24轮：连接稳定性加固
    ① initSupabase 失败按 5s/15s/45s/90s/180s 指数退避自动重试，最多 5 次
    ② startPolling 单次失败不立即变红 —— 连续 3 次失败才标 disconnected（网络抖动容差）
-   ③ 客户端心跳：每 5 分钟静默请求一次自己，保持 Cloud Studio 沙箱不进入 idle
-   ④ 检测到沙箱停止（返回含「工作空间已停止」的 HTML）→ 弹层明确提示并禁用操作 */
+   ③ （第29轮已移除）沙箱保活心跳与停止检测 —— 站点托管在 GitHub Pages，永不休眠，无需保活 */
 let _reconnectAttempts = 0;   /* initSupabase 当前重试次数 */
 let _reconnectTimer = null;   /* 下一次重试的 setTimeout 句柄 */
 let _pollFails = 0;            /* 轮询连续失败计数，达 3 次才标 disconnected */
@@ -1705,68 +1704,6 @@ function startPolling() {
     }
   }, 5000);
 }
-
-/* ============ 第24轮：沙箱保活 + 停止检测 ============
-   部署在 Cloud Studio 沙箱上，约 10~15 分钟无请求会被平台暂停（下一次访问看到「工作空间已停止」）。
-   在页面里静默定时请求同一个 origin，标签页开着时沙箱就一直有人访问，不会进 idle。
-   同时检查返回内容是否含停止标识 —— 若是，说明已经停了，弹一个明确提示。 */
-let _heartbeatTimer = null;
-let _sandboxStoppedShown = false;
-function startSandboxHeartbeat() {
-  if (_heartbeatTimer) return;
-  /* Node 测试环境跳过心跳（避免 5 分钟 setInterval 阻塞进程退出；jsdom 下 setInterval 不支持 unref） */
-  if (typeof process !== 'undefined' && process.versions && process.versions.node) {
-    /* 测试环境：让 setInterval 5min 不阻塞进程；jsdom 改用 document.visibilityState 变化时手动 ping 一次 */
-    const _sim = () => { if (!document.hidden) ping(); };
-    document.addEventListener('visibilitychange', _sim);
-    return;
-  }
-  const ping = async () => {
-    if (document.hidden) return; /* 后台标签页不消耗资源；回到前台再补一次 */
-    try {
-      const res = await fetch('./?hb=' + Date.now(), { cache: 'no-store', credentials: 'same-origin' });
-      const txt = (await res.text()) || '';
-      if (/工作空间已停止|Workspace (Stopped|stopped)/.test(txt)) {
-        if (!_sandboxStoppedShown) {
-          _sandboxStoppedShown = true;
-          _showSandboxStoppedOverlay();
-        }
-      } else {
-        if (_sandboxStoppedShown) { _sandboxStoppedShown = false; _hideSandboxStoppedOverlay(); }
-      }
-    } catch (e) { /* 网络错忽略 —— 下次心跳会再试 */ }
-  };
-  _heartbeatTimer = setInterval(ping, 5 * 60 * 1000); /* 5 分钟一次，远低于沙箱 idle 阈值 */
-  if (_heartbeatTimer && typeof _heartbeatTimer.unref === 'function') _heartbeatTimer.unref(); /* Node 测试环境不阻塞进程退出；浏览器无 unref 忽略 */
-}
-
-function _showSandboxStoppedOverlay() {
-  if (document.getElementById('sandboxStoppedOverlay')) return;
-  const ov = document.createElement('div');
-  ov.id = 'sandboxStoppedOverlay';
-  ov.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,.96);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;padding:24px;text-align:center;font-family:inherit;';
-  ov.innerHTML = `
-    <div style="font-size:48px;margin-bottom:8px;opacity:.5;">🛏️</div>
-    <h2 style="font-size:18px;color:#333;margin:0 0 8px;">部署沙箱已休眠</h2>
-    <p style="font-size:13px;color:#666;line-height:1.7;max-width:420px;margin:0 0 18px;">
-      你的浏览器没在访问页面时，Cloud Studio 平台会自动暂停工作空间节省资源。<br>
-      请在对话里跟我说「<b>重新部署唤醒</b>」或「<b>唤醒沙箱</b>」，我会重新发布；几秒后刷新本页即可。
-    </p>
-    <div style="display:flex;gap:8px;">
-      <button id="sbStopWaitBtn" style="padding:8px 16px;border:1px solid #ddd;background:#fff;border-radius:6px;cursor:pointer;font-size:13px;">⏳ 等待沙箱唤醒后自动刷新</button>
-      <button id="sbStopReloadBtn" style="padding:8px 16px;border:none;background:#3a6df0;color:#fff;border-radius:6px;cursor:pointer;font-size:13px;">🔄 立即刷新页面</button>
-    </div>
-    <p style="font-size:11px;color:#999;margin-top:18px;line-height:1.6;">预防：保持本浏览器标签页打开，每 5 分钟会自动 ping 一次维持唤醒状态。</p>
-  `;
-  document.body.appendChild(ov);
-  document.getElementById('sbStopReloadBtn').onclick = () => window.location.reload();
-  document.getElementById('sbStopWaitBtn').onclick = () => {
-    const b = document.getElementById('sbStopWaitBtn');
-    b.disabled = true; b.textContent = '⏳ 每 10 秒重试…';
-    setInterval(() => { fetch('./?probe=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => { if (!/工作空间已停止/.test(t)) window.location.reload(); }).catch(() => {}); }, 10000);
-  };
-}
-function _hideSandboxStoppedOverlay() { const ov = document.getElementById('sandboxStoppedOverlay'); if (ov) ov.remove(); }
 
 function setConnStatus(status, hint) {
   const el = document.getElementById('connStatus');
@@ -3584,6 +3521,130 @@ function addWorkdays(startD, n) {
   return r;
 }
 
+/* =====================================================================
+   第29轮：任务依赖链（关联节点）+ 日期-周期联动
+   =====================================================================
+   规则：下游任务的「开始时间」= 上游任务的「结束时间」。
+   上游结束时间变动后，级联推平整条链（含间接下游，递归）。
+   下游被推动时：周期保留，结束时间 = 新开始时间 + 周期（工作日）；
+   周期为空则只改开始时间，不动结束时间。
+   链末（无下游）只更新自身，不继续外推。
+
+   匹配口径：任务名精确匹配（归一化后），在同一项目内查找。 */
+const DEP_LINKS = [
+  /* ① 产品提案 → 提案会 → 确认产品开发方向（链末） */
+  { from: '产品提案', to: '提案会' },
+  { from: '提案会', to: '确认产品开发方向' },
+  /* ② 内料打样+测试 → 确认产品力 → 内测阶段 → 输出内测结论 → 确认最终内料+工厂（链末） */
+  { from: '内料打样+测试', to: '确认产品力' },
+  { from: '确认产品力', to: '内测阶段' },
+  { from: '内测阶段', to: '输出内测结论' },
+  { from: '输出内测结论', to: '确认最终内料+工厂' },
+  /* ③ 采购下单 → 内包材+彩盒对色 / 限度版 / 大货样10份 / 大货生产 / 推广样（均为链末） */
+  { from: '采购下单', to: '内包材+彩盒对色' },
+  { from: '采购下单', to: '限度版' },
+  { from: '采购下单', to: '大货样10份' },
+  { from: '采购下单', to: '大货生产（内料+包材+微生物检测）' },
+  { from: '采购下单', to: '推广样' }
+];
+/* 任务名归一化：去首尾空格、去内部空白（兼容全角空格），避免用户改名带空格后匹配不上 */
+const normTaskName = (s) => String(s || '').replace(/[\s\u3000]/g, '');
+/* 在一份排期表的 exec 中按名字找行（精确匹配归一化后的名字） */
+function findExecByName(exec, name) {
+  const target = normTaskName(name);
+  return (exec || []).find(r => normTaskName(r.name) === target) || null;
+}
+/* 返回某个下游任务名的所有上游任务名（用于调试/测试） */
+function upstreamsOf(taskName) {
+  const target = normTaskName(taskName);
+  return DEP_LINKS.filter(l => normTaskName(l.to) === target).map(l => l.from);
+}
+/* 某个任务的直接下游名字列表（空 = 链末） */
+function directDownstreamsOf(taskName) {
+  const target = normTaskName(taskName);
+  return DEP_LINKS.filter(l => normTaskName(l.from) === target).map(l => l.to);
+}
+/* 判断某任务名是否在依赖链中（作为上游或下游出现） */
+function isInDepChain(taskName) {
+  const target = normTaskName(taskName);
+  return DEP_LINKS.some(l => normTaskName(l.from) === target || normTaskName(l.to) === target);
+}
+/* 以某行为起点，收集所有下游行（递归，含间接下游），按层级顺序返回。
+   用 visited 防环。返回 [{ row, fromName }...]。 */
+function collectDownstreamRows(exec, startName) {
+  const out = [];
+  const visited = new Set([normTaskName(startName)]);
+  let frontier = [startName];
+  while (frontier.length > 0) {
+    const next = [];
+    frontier.forEach(fName => {
+      directDownstreamsOf(fName).forEach(toName => {
+        const key = normTaskName(toName);
+        if (visited.has(key)) return;
+        const row = findExecByName(exec, toName);
+        if (!row) return;
+        visited.add(key);
+        out.push({ row, fromName: fName });
+        next.push(toName);
+      });
+    });
+    frontier = next;
+  }
+  return out;
+}
+/* 给定任务行，按「开始 + 周期」重算结束时间；无法计算返回 null */
+function calcEndFromStartDays(row) {
+  const sd = parseCnDate(row.start);
+  const nd = parseInt(row.days) || 0;
+  if (!sd || nd <= 0) return null;
+  return cnDate(addWorkdays(sd, nd));
+}
+/* 将某行开始时间设为 newStart（cnDate 格式），周期保留、结束重算。
+   返回是否发生实际变化。 */
+function setRowStart(row, newStart) {
+  if (!row || !newStart) return false;
+  const changed = row.start !== newStart;
+  row.start = newStart;
+  const nd = parseInt(row.days) || 0;
+  if (nd > 0) {
+    const neStr = cnDate(addWorkdays(parseCnDate(newStart), nd));
+    if (row.end !== neStr) { row.end = neStr; return true; }
+  }
+  return changed;
+}
+/* 从 endD 倒推 n 个工作日（含结束日本身）得到开始日期，用于「改结束 → 反算开始」。
+   n 个工作日跨度：结束日算第 n 个，往前数到第 1 个工作日。 */
+function subWorkdays(endD, n) {
+  const r = new Date(endD);
+  while (!isWorkday(r)) r.setDate(r.getDate() - 1); /* 结束日先退到工作日 */
+  let counted = 1;
+  const left = Math.max(1, n);
+  while (counted < left) {
+    r.setDate(r.getDate() - 1);
+    if (isWorkday(r)) counted++;
+  }
+  return r;
+}
+/* 依赖链级联：按层级顺序把每个下游行的开始时间设为「其上游的结束时间」，
+   周期保留、结束重算。返回实际被改动的行 [{id, name}...]。
+   注意：按 collectDownstreamRows 的层级顺序遍历，保证间接下游拿到的是已更新的上游结束时间。
+   上游查找必须在**同一份 exec 内**进行 —— 跨项目会有同名任务（如多个项目都有「产品提案」），
+   用全局扁平数组查找会命中别的项目的行，导致级联失效。 */
+function applyDownstreamCascade(downs, exec) {
+  const changed = [];
+  const endByName = {};
+  downs.forEach(({ row, fromName }) => {
+    /* 上游结束时间：优先用本次级联中已更新的值，否则从同项目 exec 里取 */
+    const upEnd = endByName[normTaskName(fromName)] || (findExecByName(exec, fromName) || {}).end;
+    if (!upEnd) return;
+    const before = row.start + '|' + row.end;
+    setRowStart(row, upEnd);
+    endByName[normTaskName(row.name)] = row.end;
+    if (row.start + '|' + row.end !== before) changed.push({ id: row.id, name: row.name });
+  });
+  return changed;
+}
+
 /* ============== Inspiration ============== */
 function renderInspiration() {
   if (document.activeElement !== $('#inspTitle')) $('#inspTitle').textContent = state.pageTitles.inspirationTitle;
@@ -3990,37 +4051,54 @@ function duplicateScheduleProject() {
 }
 function updateExecField(id, field, value, opts) {
   const all = [];
-  Object.values(state.schedule).forEach(s => s.exec.forEach(t => all.push(t)));
+  let ownerSchedule = null;
+  Object.values(state.schedule).forEach(s => s.exec.forEach(t => { all.push(t); if (t.id === id) ownerSchedule = s; }));
   const t = all.find(x => x.id === id);
   if (!t) return;
   if (field === 'start' || field === 'end') {
     const parsed = parseCnDate(value);
     if (parsed) {
-      const dow = parsed.getDay();
+      /* 周末/法定节假日自动顺延到最近工作日 */
+      let finalDate = parsed;
       if (!isWorkday(parsed)) {
-        const adj = nextWorkday(parsed);
-        const newVal = cnDate(adj);
-        toast(`周末或法定节假日已自动调整为最近工作日：${newVal}`, 'success');
-        value = newVal;
+        finalDate = nextWorkday(parsed);
+        toast(`周末或法定节假日已自动调整为最近工作日：${cnDate(finalDate)}`, 'success');
       }
-      t[field] = value;
-      const sd = parseCnDate(t.start);
-      const ed = parseCnDate(t.end);
       const nd = parseInt(t.days) || 0;
-      if (sd && ed) {
-        // 开始+结束 → 周期（工作日）
-        t.days = workdaysBetween(sd, ed);
-      } else if (field === 'start' && nd > 0) {
-        // 开始+周期 → 结束（工作日）
-        const ne = addWorkdays(sd, nd);
-        t.end = cnDate(ne);
-        toast(`已按 ${nd} 个工作日自动计算结束时间：${t.end}`, 'success');
+
+      if (field === 'start') {
+        /* ── 改开始时间：结束时间 = 开始时间 + 周期（周期保持不变，第29轮）──
+           周期为空时不推算结束时间，仅更新开始时间。 */
+        t.start = cnDate(finalDate);
+        const ne = calcEndFromStartDays(t);
+        if (ne) t.end = ne;
+      } else {
+        /* ── 改结束时间：反算开始时间（周期保持不变，第29轮）──
+           开始时间 = 结束时间 - 周期 + 1（按工作日倒推，含首尾）。
+           周期为空时只更新结束时间。 */
+        t.end = cnDate(finalDate);
+        if (nd > 0) {
+          const sd = subWorkdays(finalDate, nd);
+          if (sd) t.start = cnDate(sd);
+        }
       }
-      // 大货到仓行日期有任何变动（开始/结束），计划到仓时间都跟随同步
+
+      /* ── 依赖链级联：若本行有下游，逐层把下游开始时间推到自己的结束时间 ── */
+      let cascaded = [];
+      if (ownerSchedule) {
+        const downs = collectDownstreamRows(ownerSchedule.exec, t.name);
+        if (downs.length > 0) cascaded = applyDownstreamCascade(downs, ownerSchedule.exec);
+      }
+
       syncPlanFromBigGoods(getScheduleByTaskId(id));
-    } else {
-      t[field] = value;
+      saveLocal();
+      if (!opts || opts.render !== false) { renderSchedule(); renderOverview(); renderGantt(); renderProjects(); }
+      if (cascaded.length > 0) {
+        toast(`已联动同步 ${cascaded.length} 个下游任务：${cascaded.map(c => c.name).join('、')}`, 'success');
+      }
+      return;
     }
+    t[field] = value;
     saveLocal();
     /* 修复：blur 保存文本字段时跳过整表重渲染 —— 否则点击另一单元格时，
        blur 触发 renderSchedule 会把用户正在点击的单元格 DOM 销毁，光标放不进去、文字选不中。
@@ -4043,14 +4121,24 @@ function updateExecField(id, field, value, opts) {
     t.days = parseInt(value) || 0;
     const sd = parseCnDate(t.start);
     if (sd && t.days > 0) {
-      // 开始+周期 → 结束（工作日）
+      // 开始+周期 → 结束（工作日）—— 开始时间不变，重算结束时间
       const ne = addWorkdays(sd, t.days);
       t.end = cnDate(ne);
-      toast(`已按 ${t.days} 个工作日自动计算结束时间：${t.end}`, 'success');
       // 大货到仓行改天数重算结束日期 → 计划到仓时间同步
       syncPlanFromBigGoods(getScheduleByTaskId(id));
+      // 第29轮：结束时间变了，级联推下游
+      const ownerSched = getScheduleByTaskId(id);
+      let cascaded = [];
+      if (ownerSched) {
+        const downs = collectDownstreamRows(ownerSched.s.exec, t.name);
+        if (downs.length > 0) cascaded = applyDownstreamCascade(downs, ownerSched.s.exec);
+      }
       saveLocal();
       renderSchedule(); renderOverview(); renderGantt();
+      toast(`已按 ${t.days} 个工作日重算结束时间：${t.end}`, 'success');
+      if (cascaded.length > 0) {
+        toast(`已联动同步 ${cascaded.length} 个下游任务：${cascaded.map(c => c.name).join('、')}`, 'success');
+      }
       return;
     }
   }
@@ -4920,7 +5008,6 @@ async function init() {
   backfillPlanFromBigGoods();
   ensureCompletedAt(); /* 第20轮：存量已 done 任务补 completedAt = t.end（视作准点完成），幂等 */
   initSupabase();
-  startSandboxHeartbeat(); /* 第24轮：沙箱保活 + 停止检测 */
   window.__app = { state, save: saveLocal, render: renderAll, undo: undoLastAction, undoLen: () => undoStack.length, connBtn: { savePos: saveConnPos, resetPos: resetConnPos, applyPos: applyConnPos } };
   _bootComplete = true; /* 初始化完成前不刷新排期表 updatedAt */
   _lastPersistJson = JSON.stringify(state); /* 撤销基线：初始化完成后的第一笔修改才可被撤销 */
