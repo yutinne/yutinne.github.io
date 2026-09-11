@@ -3679,6 +3679,46 @@ function subDaysByMode(endD, n, mode) {
 }
 
 /* =====================================================================
+   第33轮：周期自动换算（仅当「周期」为空时）
+   =====================================================================
+   规则：开始时间、结束时间都填好后，若「周期」为空（0 或未填），
+   自动补算周期 = 两者之间的天数（按本行口径：工作日 / 日历天）。
+
+   触发范围：**只有用户手动改动开始或结束时间**（统一走 updateExecField）。
+   依赖链级联、其余程序化写入一律不触发 —— 否则会把下游任务已填好的
+   周期冲掉（下游的「开始时间」是系统从上游结束时间推过来的，不是用户填的）。
+
+   异常：结束时间早于开始时间 → 不写入周期，提示用户自行修正。
+   已确认的其余三条换算规则保持第29轮原样，一字未改。 */
+function calendarDaysBetween(startD, endD) {
+  if (!startD || !endD) return 0;
+  let count = 0;
+  const cur = new Date(startD);
+  while (cur <= endD) {
+    if (!isCnHoliday(cur)) count++;   // 与 addCalendarDays 对齐：算周末、不算法定节假日
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+/* 按口径统计 [startD, endD] 区间天数（含首尾），与 addDaysByMode 互逆 */
+function spanDaysByMode(startD, endD, mode) {
+  return mode === 'calendar' ? calendarDaysBetween(startD, endD) : workdaysBetween(startD, endD);
+}
+/* 周期为空时用「开始 + 结束」补算周期。
+   返回 null（无需处理）/ { days: n }（已写入）/ { error: 'endBeforeStart' } */
+function autoFillDaysIfEmpty(row, pid) {
+  if (!row || parseInt(row.days) > 0) return null;        // 周期已有值 → 一个字都不动
+  if (!row.start || !row.end) return null;                 // 缺一端 → 无从换算
+  const sd = parseCnDate(row.start), ed = parseCnDate(row.end);
+  if (!sd || !ed) return null;
+  if (ed < sd) return { error: 'endBeforeStart' };         // 结束早于开始 → 拒绝写入
+  const n = spanDaysByMode(sd, ed, rowDayMode(row, pid));
+  if (!(n > 0)) return { error: 'endBeforeStart' };
+  row.days = n;
+  return { days: n };
+}
+
+/* =====================================================================
    第29轮：任务依赖链（关联节点）+ 日期-周期联动
    =====================================================================
    规则：下游任务的「开始时间」= 上游任务的「结束时间」。
@@ -4315,6 +4355,9 @@ function updateExecField(id, field, value, opts) {
         }
       }
 
+      /* ── 第33轮：周期为空时，用「开始 + 结束」自动补算周期 ── */
+      const autoDays = autoFillDaysIfEmpty(t, ownerPid);
+
       /* ── 依赖链级联：若本行有下游，逐层把下游开始时间推到自己的结束时间 ── */
       let cascaded = [];
       if (ownerSchedule) {
@@ -4325,6 +4368,11 @@ function updateExecField(id, field, value, opts) {
       syncPlanFromBigGoods(getScheduleByTaskId(id));
       saveLocal();
       if (!opts || opts.render !== false) { renderSchedule(); renderOverview(); renderGantt(); renderProjects(); }
+      if (autoDays && autoDays.error) {
+        toast('结束时间早于开始时间，无法自动换算周期 —— 请检查日期', 'error');
+      } else if (autoDays) {
+        toast(`周期为空，已按开始/结束时间自动换算：${autoDays.days} ${rowMode === 'calendar' ? '个日历天（算周末、不算法定节假日）' : '个工作日'}`, 'success');
+      }
       if (cascaded.length > 0) {
         toast(`已联动同步 ${cascaded.length} 个下游任务：${cascaded.map(c => c.name).join('、')}`, 'success');
       }
