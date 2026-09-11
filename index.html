@@ -1930,6 +1930,25 @@ function nextWorkday(d) {
   while (!isWorkday(r)) r.setDate(r.getDate() + 1);
   return r;
 }
+/* 是否「法定节假日」（调休补班日不算 —— 与 isWorkday 判定顺序保持一致） */
+function isCnHoliday(d) {
+  const k = dkey(d);
+  if (CN_MAKEUP_WORKDAYS.has(k)) return false;
+  return CN_HOLIDAYS.has(k);
+}
+/* 日期在某口径下是否已是「合法落点」：
+   workday  → 必须是工作日（不含周末、不含法定节假日）
+   calendar → 只要不是法定节假日即可（周末允许落在上面） */
+function isValidByMode(d, mode) {
+  return mode === 'calendar' ? !isCnHoliday(d) : isWorkday(d);
+}
+/* 按口径顺延到最近的合法落点：
+   workday  → 最近工作日；calendar → 最近非节假日（周末照常） */
+function nextByMode(d, mode) {
+  const r = new Date(d);
+  while (!isValidByMode(r, mode)) r.setDate(r.getDate() + 1);
+  return r;
+}
 function workdaysBetween(startD, endD) {
   if (!startD || !endD) return 0;
   let count = 0;
@@ -2657,7 +2676,7 @@ function execCellHtml(r, ck, o) {
     case 'days': {
       /* 第30轮：任务级口径开关（限度版 / 大货样10份 / 大货生产 / 物流时间 / 含"上机对色"任务） */
       const taskBadge = isMaskTask(r.name)
-        ? `<span class="daymode-badge ${rowDayMode(r, o.pid)}" data-act="toggle-daymode" data-pid="${o.pid}" data-kind="task" data-name="${esc(r.name)}" title="点击切换本任务周期口径：工作日 / 日历天（含周末）">${rowDayMode(r, o.pid) === 'calendar' ? '日历天' : '工作日'}</span>`
+        ? `<span class="daymode-badge ${rowDayMode(r, o.pid)}" data-act="toggle-daymode" data-pid="${o.pid}" data-kind="task" data-name="${esc(r.name)}" title="点击切换本任务周期口径：工作日（跳周末+法定节假日）/ 日历天（算周末、不算法定节假日）">${rowDayMode(r, o.pid) === 'calendar' ? '日历天' : '工作日'}</span>`
         : '';
       return `<td class="days"${base}><span contenteditable="true" data-field="days">${esc(String(r.days || ''))}</span>${taskBadge}</td>`;
     }
@@ -3551,16 +3570,30 @@ function addWorkdays(startD, n) {
   return r;
 }
 /* 从 startD 开始算 n 个日历天（含起始日）后的日期，用于"日历天"口径。
-   不跳过周末、不跳法定节假日 —— 自然日推进。 */
+   口径：**算周末，但不算法定节假日** —— 周末照常计数（工厂不停、自然日推进），
+   法定节假日跳过不计（节假日不推进工期）。起始日若逢法定节假日先顺延到最近非节假日。 */
 function addCalendarDays(startD, n) {
   const r = new Date(startD);
-  r.setDate(r.getDate() + Math.max(1, n) - 1);
+  while (isCnHoliday(r)) r.setDate(r.getDate() + 1); // 起始日逢法定节假日 → 顺延
+  let counted = 1; // 起始日算第 1 个日历天
+  const left = Math.max(1, n);
+  while (counted < left) {
+    r.setDate(r.getDate() + 1);
+    if (!isCnHoliday(r)) counted++; // 周末计入，法定节假日跳过
+  }
   return r;
 }
-/* 从 endD 倒推 n 个日历天（含结束日本身）得到开始日期，用于日历天口径下「改结束 → 反算开始」。 */
+/* 从 endD 倒推 n 个日历天（含结束日本身）得到开始日期，用于日历天口径下「改结束 → 反算开始」。
+   同样算周末、不算法定节假日；结束日若逢法定节假日先前移到最近非节假日。 */
 function subCalendarDays(endD, n) {
   const r = new Date(endD);
-  r.setDate(r.getDate() - (Math.max(1, n) - 1));
+  while (isCnHoliday(r)) r.setDate(r.getDate() - 1);
+  let counted = 1;
+  const left = Math.max(1, n);
+  while (counted < left) {
+    r.setDate(r.getDate() - 1);
+    if (!isCnHoliday(r)) counted++;
+  }
   return r;
 }
 
@@ -3636,7 +3669,7 @@ function subDaysByMode(endD, n, mode) {
    =====================================================================
    规则：下游任务的「开始时间」= 上游任务的「结束时间」。
    上游结束时间变动后，级联推平整条链（含间接下游，递归）。
-   下游被推动时：周期保留，结束时间 = 新开始时间 + 周期（工作日）；
+   下游被推动时：周期保留，结束时间 = 新开始时间 + 周期（按本行所属阶段/任务的口径算）；
    周期为空则只改开始时间，不动结束时间。
    链末（无下游）只更新自身，不继续外推。
 
@@ -3819,7 +3852,7 @@ function toggleDayMode(pid, kind, name) {
   saveLocal();
   renderSchedule(); renderOverview(); renderGantt(); renderProjects();
   const label = kind === 'module' ? `阶段「${name}」` : `任务「${name}」`;
-  const modeText = next === 'calendar' ? '日历天（含周末）' : '工作日（不含周末/法定节假日）';
+  const modeText = next === 'calendar' ? '日历天（算周末、不算法定节假日）' : '工作日（跳周末、不算法定节假日）';
   toast(`${label} 已切换为${modeText}${recalc ? `，重算 ${recalc} 行结束时间` : ''}`, 'success');
   if (cascadedAll.length) toast(`已联动同步 ${cascadedAll.length} 个下游任务`, 'success');
 }
@@ -4239,12 +4272,15 @@ function updateExecField(id, field, value, opts) {
     const parsed = parseCnDate(value);
     if (parsed) {
       const rowMode = rowDayMode(t, ownerPid);
-      /* 周末/法定节假日自动顺延到最近工作日 —— 仅「工作日」口径下生效。
-         日历天口径（大货阶段等）允许落在任意一天，不做顺延。 */
+      /* 自动顺延到「合法落点」（第31轮口径细化）：
+         工作日口径 → 周末 + 法定节假日都不允许，顺延到最近工作日；
+         日历天口径 → 周末允许（算周末），但法定节假日仍不允许，顺延到最近非节假日。 */
       let finalDate = parsed;
-      if (rowMode !== 'calendar' && !isWorkday(parsed)) {
-        finalDate = nextWorkday(parsed);
-        toast(`周末或法定节假日已自动调整为最近工作日：${cnDate(finalDate)}`, 'success');
+      if (!isValidByMode(parsed, rowMode)) {
+        finalDate = nextByMode(parsed, rowMode);
+        toast(rowMode === 'calendar'
+          ? `法定节假日已自动顺延为：${cnDate(finalDate)}`
+          : `周末或法定节假日已自动调整为最近工作日：${cnDate(finalDate)}`, 'success');
       }
       const nd = parseInt(t.days) || 0;
 
@@ -4676,10 +4712,16 @@ document.addEventListener('change', (e) => {
     const dateVal = e.target.value;
     if (!dateVal) { updateExecField(id, field, ''); return; } // 允许清空日期
     const d = new Date(dateVal + 'T00:00:00');
-    let finalD = d;
-    if (d.getDay() === 0 || d.getDay() === 6 || CN_HOLIDAYS.has(dkey(d))) {
-      finalD = nextWorkday(d);
-      toast(`周末或法定节假日已自动调整为最近工作日：${cnDate(finalD)}`, 'success');
+    /* 第31轮：日期选择器也要按本行口径顺延 —— 之前这里无条件跳周末，
+       日历天口径的任务（大货生产等）选到周六会被错误推到周一。 */
+    const _pid = findPidByTaskId(id);
+    const _row = _pid ? ((state.schedule[_pid] || {}).exec || []).find(x => x.id === id) : null;
+    const _mode = _row ? rowDayMode(_row, _pid) : 'workday';
+    const finalD = nextByMode(d, _mode);
+    if (!isValidByMode(d, _mode)) {
+      toast(_mode === 'calendar'
+        ? `法定节假日已自动顺延为：${cnDate(finalD)}`
+        : `周末或法定节假日已自动调整为最近工作日：${cnDate(finalD)}`, 'success');
     }
     updateExecField(id, field, cnDate(finalD));
     e.target.value = toDateInput(finalD);
