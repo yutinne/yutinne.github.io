@@ -2663,7 +2663,7 @@ function execCellHtml(r, ck, o) {
     case 'module': {
       /* 第30轮：可切换口径的阶段，在模块名后挂一个口径徽标（点击切换） */
       const modBadge = isMaskModule(r.module) && isRowTogglable(r)
-        ? `<span class="daymode-badge ${moduleDayMode(o.pid, r.module)}" data-act="toggle-daymode" data-pid="${o.pid}" data-kind="module" data-name="${esc(r.module)}" title="点击切换本阶段周期口径：工作日 / 日历天（含周末）">${moduleDayMode(o.pid, r.module) === 'calendar' ? '日历天' : '工作日'}</span>`
+        ? `<span class="daymode-badge ${moduleDayMode(o.pid, r.module)}" data-act="toggle-daymode" data-pid="${o.pid}" data-kind="module" data-name="${esc(r.module)}" title="点击切换本阶段周期口径：工作日（跳周末+法定节假日）/ 日历天（算周末、不算法定节假日）">${moduleDayMode(o.pid, r.module) === 'calendar' ? '日历天' : '工作日'}</span>`
         : '';
       return `<td class="module"${base}><span contenteditable="true" data-field="module">${esc(r.module || '')}</span>${modBadge}</td>`;
     }
@@ -4355,7 +4355,7 @@ function updateExecField(id, field, value, opts) {
       }
       saveLocal();
       renderSchedule(); renderOverview(); renderGantt();
-      const modeLabel = rowMode === 'calendar' ? '日历天' : '个工作日';
+      const modeLabel = rowMode === 'calendar' ? '个日历天（算周末、不算法定节假日）' : '个工作日';
       toast(`已按 ${t.days} ${modeLabel}重算结束时间：${t.end}`, 'success');
       if (cascaded.length > 0) {
         toast(`已联动同步 ${cascaded.length} 个下游任务：${cascaded.map(c => c.name).join('、')}`, 'success');
