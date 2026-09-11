@@ -583,11 +583,19 @@ body {
 }
 .exec-table td.module { background: var(--paper-2); font-weight: 500; text-align: left; padding-left: 12px; vertical-align: middle; }
 .exec-table td.module[rowspan] { vertical-align: middle; }
+/* 第32轮修复：周期/模块格的编辑节点是格内 <span>，徽标不能挤占它 ——
+   否则可点、可输入的宽度只剩数字那几个像素，整格点不动
+   （用户报「周期不能自定义输入数字了」的根因）。 */
+.exec-table td.days { background: var(--paper-2); cursor: text; padding: 8px 6px; }
+.exec-table td.days > span[contenteditable="true"] { display: inline-block; min-width: 26px; padding: 2px 4px; margin-right: 2px; border-radius: 4px; outline: none; cursor: text; text-align: center; font-variant-numeric: tabular-nums; }
+.exec-table td.days > span[contenteditable="true"]:focus { background: var(--cream-2); box-shadow: 0 0 0 1.5px var(--brown); }
+.exec-table td.module > span[contenteditable="true"] { display: block; outline: none; border-radius: 4px; cursor: text; }
+.exec-table td.module .daymode-badge { margin: 3px 0 0; }
 /* 第30轮：周期口径开关徽标 */
 .daymode-badge {
   display: inline-flex; align-items: center; gap: 3px; margin-left: 6px;
-  padding: 1px 7px; border-radius: 9px; font-size: 10px; font-weight: 600;
-  line-height: 1.6; white-space: nowrap; cursor: pointer; user-select: none;
+  padding: 1px 5px; border-radius: 9px; font-size: 10px; font-weight: 600;
+  line-height: 1.5; white-space: nowrap; cursor: pointer; user-select: none;
   border: 1px solid transparent; vertical-align: middle;
 }
 .daymode-badge.calendar { color: #185FA5; background: #E6F1FB; border-color: #85B7EB; }
@@ -2562,7 +2570,13 @@ function renderExecTable(rows, pid) {
   const cw = s.colWidths || {};
   const rh = s.rowHeights || {};
   const colKeys = getColKeys(pid);
-  const colStyle = i => cw[i] ? ` style="width:${cw[i]}px;min-width:${cw[i]}px"` : '';
+  /* 第32轮：周期列要同时容纳「数字」和「口径徽标」，给一个渲染期最小宽度。
+     只影响本次渲染，不写回用户保存的 colWidths；用户设得更宽时以用户的为准。 */
+  const daysFloor = rows.some(r => isMaskTask(r.name)) ? 100 : 0;
+  const colStyle = i => {
+    const w = i === 4 ? Math.max(cw[i] || 0, daysFloor) : (cw[i] || 0);
+    return w ? ` style="width:${w}px;min-width:${w}px"` : '';
+  };
   const colgroupHtml = '<colgroup>' + colKeys.map((k, i) => `<col${colStyle(i)}>`).join('') + '</colgroup>';
   const baseLabels = ['模块','项目任务','开始时间','结束时间','周期(天)','责任人','风险警示','状态','备注'];
   const labels = [...baseLabels, ...(s.extraCols || []).map(c => c.name), ''];
@@ -5149,7 +5163,9 @@ document.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   const row = e.target && e.target.closest ? e.target.closest('.sortable-row') : null;
   if (!row) return;
-  row.draggable = !e.target.closest('[contenteditable="true"]');
+  /* 第32轮：周期/模块格整格都是「文字编辑区」（编辑节点在内层 span），
+     在这些格子以及口径徽标上按下都不触发行拖拽。 */
+  row.draggable = !e.target.closest('[contenteditable="true"], td.days, td.module, .daymode-badge');
 }, true);
 document.addEventListener('mouseup', () => {
   document.querySelectorAll('.sortable-row').forEach(r => { if (r.draggable === false) r.draggable = true; });
@@ -5165,6 +5181,23 @@ $('#scheduleContent').addEventListener('mousedown', (e) => {
      （单元格范围的拖选扩展仍可从非文字区域开始，或用 点首格+Shift点末格） */
   if (e.target.closest('[contenteditable="true"]')) return;
   if (e.shiftKey) return;
+  /* 第32轮修复：周期格/模块格里点空白处（口径徽标除外）→ 直接聚焦格内文字进入编辑。
+     这两个格的 contenteditable 从外层 td 移到了内层 span，空白处原本点不到，
+     还会被下面的「拖选扩展 / 行拖拽」接管。 */
+  const innerEdit = td.querySelector('span[contenteditable="true"]');
+  if (innerEdit && !e.target.closest('.daymode-badge')) {
+    e.preventDefault();
+    try {
+      const rng = document.createRange();
+      rng.selectNodeContents(innerEdit);
+      rng.collapse(false);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(rng);
+    } catch (err) { /* 选区 API 不可用时退化为仅聚焦 */ }
+    innerEdit.focus();
+    return;
+  }
   if (td.classList.contains('cell-sel') && fmtSelValid()) {
     dragSel = { tbl: td.closest('.exec-table') };
     e.preventDefault();
