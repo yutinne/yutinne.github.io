@@ -583,6 +583,20 @@ body {
 }
 .exec-table td.module { background: var(--paper-2); font-weight: 500; text-align: left; padding-left: 12px; vertical-align: middle; }
 .exec-table td.module[rowspan] { vertical-align: middle; }
+/* 第30轮：周期口径开关徽标 */
+.daymode-badge {
+  display: inline-flex; align-items: center; gap: 3px; margin-left: 6px;
+  padding: 1px 7px; border-radius: 9px; font-size: 10px; font-weight: 600;
+  line-height: 1.6; white-space: nowrap; cursor: pointer; user-select: none;
+  border: 1px solid transparent; vertical-align: middle;
+}
+.daymode-badge.calendar { color: #185FA5; background: #E6F1FB; border-color: #85B7EB; }
+.daymode-badge.calendar:hover { background: #B5D4F4; }
+.daymode-badge.workday { color: #854F0B; background: #FAEEDA; border-color: #EF9F27; }
+.daymode-badge.workday:hover { background: #FAC775; }
+.daymode-badge:active { transform: scale(.95); }
+/* 任务级开关：放在「周期」列，更贴近它控制的对象 */
+.exec-table td.days .daymode-badge { margin-left: 4px; }
 .exec-table td.task-name-cell { text-align: left; padding-left: 12px; white-space: nowrap; overflow: visible; }
 .exec-table td.task-name-cell .task-name-inner { display: inline-block; white-space: nowrap; overflow: visible; vertical-align: middle; }
 .exec-table td.task-name-cell span[contenteditable="true"] { display: inline-block; min-width: 380px; outline: none; }
@@ -1426,7 +1440,11 @@ const defaultState = {
      custom = 用户手动添加的任务（仅存在于本周任务，不影响排期表）
      hidden = 用户从本周任务隐藏的排期任务 execId（排期表不受影响）
      order  = 用户拖拽后的显示顺序（execId 或 'c:'+custom.id），空数组 = 按结束时间自动排序 */
-  weekTasks: { custom: [], hidden: [], order: [] }
+  weekTasks: { custom: [], hidden: [], order: [] },
+  /* 第30轮：周期口径开关配置。{ [项目id]: { 'm:阶段名' | 't:任务名': 'calendar' } }
+     未出现的键一律视为 'workday'（默认工作日，与历史数据一致）。
+     可切换范围见 MASK_MODULES / MASK_TASKS / isColorTaskName。 */
+  dayOpts: {}
 };
 
 /* 第23轮：换新地址（新 origin）恢复保护 —— 本地 localStorage 无存档时视为「全新设备」：
@@ -2623,14 +2641,26 @@ function execCellHtml(r, ck, o) {
   const base = ` data-r="${o.idx}" data-c="${getColKeys(o.pid).indexOf(ck)}" data-rid="${r.id}" data-col="${ck}"${rs}${cs}${style}`;
   const inputStyle = 'border:1px solid var(--line);border-radius:4px;padding:2px 4px;font-size:11px;color:inherit;background:transparent;width:100%;';
   switch (ck) {
-    case 'module': return `<td class="module" contenteditable="true" data-field="module"${base}>${esc(r.module || '')}</td>`;
+    case 'module': {
+      /* 第30轮：可切换口径的阶段，在模块名后挂一个口径徽标（点击切换） */
+      const modBadge = isMaskModule(r.module) && isRowTogglable(r)
+        ? `<span class="daymode-badge ${moduleDayMode(o.pid, r.module)}" data-act="toggle-daymode" data-pid="${o.pid}" data-kind="module" data-name="${esc(r.module)}" title="点击切换本阶段周期口径：工作日 / 日历天（含周末）">${moduleDayMode(o.pid, r.module) === 'calendar' ? '日历天' : '工作日'}</span>`
+        : '';
+      return `<td class="module"${base}><span contenteditable="true" data-field="module">${esc(r.module || '')}</span>${modBadge}</td>`;
+    }
     case 'name': return `<td class="task-name-cell"${base}><span class="cell-check ${r.statusState === 'done' ? 'checked' : ''}" data-act="toggle-exec-status" data-id="${r.id}">${r.statusState === 'done' ? '✓' : ''}</span><span class="task-name-inner" contenteditable="true" data-field="name" style="margin-left:6px;outline:none;">${esc(r.name)}</span></td>`;
     case 'start': case 'end': {
       const d = parseCnDate(r[ck]);
       const val = d ? toDateInput(d) : '';
       return `<td class="date"${base}><input type="date" class="exec-date-input" data-field="${ck}" data-id="${r.id}" value="${val}" style="${inputStyle}"></td>`;
     }
-    case 'days': return `<td class="days" contenteditable="true" data-field="days"${base}>${esc(String(r.days || ''))}</td>`;
+    case 'days': {
+      /* 第30轮：任务级口径开关（限度版 / 大货样10份 / 大货生产 / 物流时间 / 含"上机对色"任务） */
+      const taskBadge = isMaskTask(r.name)
+        ? `<span class="daymode-badge ${rowDayMode(r, o.pid)}" data-act="toggle-daymode" data-pid="${o.pid}" data-kind="task" data-name="${esc(r.name)}" title="点击切换本任务周期口径：工作日 / 日历天（含周末）">${rowDayMode(r, o.pid) === 'calendar' ? '日历天' : '工作日'}</span>`
+        : '';
+      return `<td class="days"${base}><span contenteditable="true" data-field="days">${esc(String(r.days || ''))}</span>${taskBadge}</td>`;
+    }
     case 'owner': {
       const vals = splitOwners(r.owner || '');
       const chips = vals.map(v => OWNER_OPTIONS.includes(v)
@@ -3520,6 +3550,86 @@ function addWorkdays(startD, n) {
   }
   return r;
 }
+/* 从 startD 开始算 n 个日历天（含起始日）后的日期，用于"日历天"口径。
+   不跳过周末、不跳法定节假日 —— 自然日推进。 */
+function addCalendarDays(startD, n) {
+  const r = new Date(startD);
+  r.setDate(r.getDate() + Math.max(1, n) - 1);
+  return r;
+}
+/* 从 endD 倒推 n 个日历天（含结束日本身）得到开始日期，用于日历天口径下「改结束 → 反算开始」。 */
+function subCalendarDays(endD, n) {
+  const r = new Date(endD);
+  r.setDate(r.getDate() - (Math.max(1, n) - 1));
+  return r;
+}
+
+/* =====================================================================
+   第30轮：周期口径开关（工作日 / 日历天）
+   =====================================================================
+   默认口径 = 工作日（与历史数据完全一致，零迁移）。
+   只有下列范围的「周期」字段可切换为日历天：
+     · 阶段级：稳兼测试阶段、品宣阶段
+     · 任务级：限度版、大货样10份、大货生产（内料+包材+微生物检测）、物流时间、
+               以及「内包材+彩盒对色」—— 兼容含「上机对色」关键词的写法（如「膜袋上机对色」）
+   用户配置存于 state.dayOpts = { [项目id]: { [key]: 'workday' | 'calendar' } }，key 形如
+   "m:稳兼测试阶段"（阶段）或 "t:限度版"（任务）。缺省一律视为 'workday'。 */
+const MASK_MODULES = ['稳兼测试阶段', '品宣阶段'];
+const MASK_TASKS = ['限度版', '大货样10份', '大货生产（内料+包材+微生物检测）', '物流时间'];
+/* 关键词匹配：任务名含「上机对色」或等于「内包材+彩盒对色」都算开关目标 */
+const COLOR_MATCH_RE = /上机对色/;
+const isColorTaskName = (name) => {
+  const n = normTaskName(name);
+  return n === normTaskName('内包材+彩盒对色') || COLOR_MATCH_RE.test(n);
+};
+/* 某任务名是否落在「可切换口径」范围内 */
+function isMaskModule(moduleName) {
+  const m = String(moduleName || '').trim();
+  return MASK_MODULES.includes(m);
+}
+function isMaskTask(taskName) {
+  const n = normTaskName(taskName);
+  if (isColorTaskName(taskName)) return true;
+  return MASK_TASKS.some(t => normTaskName(t) === n);
+}
+/* 取某项目的口径配置表（不存在返回空对象，读操作安全） */
+function dayOptsOf(pid) {
+  if (!state.dayOpts) state.dayOpts = {};
+  return state.dayOpts[pid] || {};
+}
+/* 某行的开关 key：优先任务级，其次阶段级 */
+function maskKeyOf(row) {
+  if (!row) return null;
+  if (isMaskTask(row.name)) return 't:' + normTaskName(row.name);
+  if (isMaskModule(row.module)) return 'm:' + String(row.module || '').trim();
+  return null;
+}
+/* 该行是否属于「可切换口径」范围 */
+const isRowTogglable = (row) => maskKeyOf(row) !== null;
+/* 该行的生效口径：'calendar' 或 'workday'（默认 workday） */
+function rowDayMode(row, pid) {
+  const key = maskKeyOf(row);
+  if (!key) return 'workday';
+  const opts = dayOptsOf(pid);
+  return opts[key] === 'calendar' ? 'calendar' : 'workday';
+}
+/* 阶段级开关当前的显示状态：该阶段内**所有**可切换行都已是 calendar 才显示 calendar。
+   混用时按「未全开」处理，点击后统一设为 calendar。 */
+function moduleDayMode(pid, moduleName) {
+  const s = state.schedule[pid];
+  if (!s) return 'workday';
+  const rows = (s.exec || []).filter(r => String(r.module || '').trim() === String(moduleName || '').trim() && isRowTogglable(r));
+  if (!rows.length) return 'workday';
+  return rows.every(r => rowDayMode(r, pid) === 'calendar') ? 'calendar' : 'workday';
+}
+/* 按口径计算「开始 + 周期 → 结束」 */
+function addDaysByMode(startD, n, mode) {
+  return mode === 'calendar' ? addCalendarDays(startD, n) : addWorkdays(startD, n);
+}
+/* 按口径反推「结束 - 周期 → 开始」 */
+function subDaysByMode(endD, n, mode) {
+  return mode === 'calendar' ? subCalendarDays(endD, n) : subWorkdays(endD, n);
+}
 
 /* =====================================================================
    第29轮：任务依赖链（关联节点）+ 日期-周期联动
@@ -3592,22 +3702,34 @@ function collectDownstreamRows(exec, startName) {
   }
   return out;
 }
-/* 给定任务行，按「开始 + 周期」重算结束时间；无法计算返回 null */
-function calcEndFromStartDays(row) {
+/* 第30轮辅助：按任务 id 反查所属 pid（口径开关按 pid 存） */
+function findPidByTaskId(id) {
+  for (const [pid, s] of Object.entries(state.schedule || {})) {
+    if (s && Array.isArray(s.exec) && s.exec.some(x => x.id === id)) return pid;
+  }
+  return null;
+}
+/* 给定任务行，按「开始 + 周期」重算结束时间；口径由该行所属阶段/任务开关决定。
+   opts.pid 可显式指定项目（不给则按 row.id 反查）。无法计算返回 null */
+function calcEndFromStartDays(row, opts) {
   const sd = parseCnDate(row.start);
   const nd = parseInt(row.days) || 0;
   if (!sd || nd <= 0) return null;
-  return cnDate(addWorkdays(sd, nd));
+  const pid = (opts && opts.pid) || findPidByTaskId(row.id);
+  const mode = rowDayMode(row, pid);
+  return cnDate(addDaysByMode(sd, nd, mode));
 }
 /* 将某行开始时间设为 newStart（cnDate 格式），周期保留、结束重算。
-   返回是否发生实际变化。 */
-function setRowStart(row, newStart) {
+   口径由该行所属阶段/任务开关决定（第30轮）。返回是否发生实际变化。 */
+function setRowStart(row, newStart, pid) {
   if (!row || !newStart) return false;
   const changed = row.start !== newStart;
   row.start = newStart;
   const nd = parseInt(row.days) || 0;
   if (nd > 0) {
-    const neStr = cnDate(addWorkdays(parseCnDate(newStart), nd));
+    const p = pid || findPidByTaskId(row.id);
+    const mode = rowDayMode(row, p);
+    const neStr = cnDate(addDaysByMode(parseCnDate(newStart), nd, mode));
     if (row.end !== neStr) { row.end = neStr; return true; }
   }
   return changed;
@@ -3629,20 +3751,77 @@ function subWorkdays(endD, n) {
    周期保留、结束重算。返回实际被改动的行 [{id, name}...]。
    注意：按 collectDownstreamRows 的层级顺序遍历，保证间接下游拿到的是已更新的上游结束时间。
    上游查找必须在**同一份 exec 内**进行 —— 跨项目会有同名任务（如多个项目都有「产品提案」），
-   用全局扁平数组查找会命中别的项目的行，导致级联失效。 */
-function applyDownstreamCascade(downs, exec) {
+   用全局扁平数组查找会命中别的项目的行，导致级联失效。
+   第30轮：下游的结束时间按**下游自己所属阶段/任务的口径**重算 —— 上游被推过来只决定「开始时间」，
+   各阶段仍按自己的节奏（如大货阶段用日历天、品宣阶段用工作日）。 */
+function applyDownstreamCascade(downs, exec, pid) {
   const changed = [];
   const endByName = {};
+  const p = pid || (downs.length ? findPidByTaskId(downs[0].row.id) : null);
   downs.forEach(({ row, fromName }) => {
     /* 上游结束时间：优先用本次级联中已更新的值，否则从同项目 exec 里取 */
     const upEnd = endByName[normTaskName(fromName)] || (findExecByName(exec, fromName) || {}).end;
     if (!upEnd) return;
     const before = row.start + '|' + row.end;
-    setRowStart(row, upEnd);
+    setRowStart(row, upEnd, p);
     endByName[normTaskName(row.name)] = row.end;
     if (row.start + '|' + row.end !== before) changed.push({ id: row.id, name: row.name });
   });
   return changed;
+}
+
+/* =====================================================================
+   第30轮：切换周期口径开关
+   =====================================================================
+   toggleDayMode(pid, kind, name)：
+     kind='module' → 切换某阶段（该阶段内所有可切换行统一设置）
+     kind='task'   → 切换某任务名（该项目内所有同名行统一设置）
+   切换后立即重算该范围内已有日期的行的结束时间（有周期则算，无周期只改口径不动日期），
+   并级联推下游。 */
+function toggleDayMode(pid, kind, name) {
+  const s = state.schedule[pid];
+  if (!s) return;
+  const key = kind === 'module' ? 'm:' + String(name).trim() : 't:' + normTaskName(name);
+  if (!state.dayOpts) state.dayOpts = {};
+  if (!state.dayOpts[pid]) state.dayOpts[pid] = {};
+  const cur = state.dayOpts[pid][key] === 'calendar' ? 'calendar' : 'workday';
+  const next = cur === 'calendar' ? 'workday' : 'calendar';
+  state.dayOpts[pid][key] = next;
+
+  /* 找出受影响的行使之立即重算 */
+  const targets = (s.exec || []).filter(r => {
+    if (kind === 'module') return String(r.module || '').trim() === String(name).trim() && isRowTogglable(r);
+    return normTaskName(r.name) === normTaskName(name);
+  });
+  let recalc = 0;
+  targets.forEach(r => {
+    const sd = parseCnDate(r.start);
+    const nd = parseInt(r.days) || 0;
+    if (sd && nd > 0) {
+      const before = r.end;
+      r.end = cnDate(addDaysByMode(sd, nd, next));
+      if (r.end !== before) recalc++;
+    }
+  });
+
+  /* 受影响行里有依赖链上游的（如采购下单/推广样），级联推下游 */
+  const cascadedAll = [];
+  targets.forEach(r => {
+    const downs = collectDownstreamRows(s.exec, r.name);
+    if (downs.length) {
+      applyDownstreamCascade(downs, s.exec, pid).forEach(c => {
+        if (!cascadedAll.some(x => x.id === c.id)) cascadedAll.push(c);
+      });
+    }
+  });
+
+  syncPlanFromBigGoods(getScheduleByTaskId(targets.length ? targets[0].id : null));
+  saveLocal();
+  renderSchedule(); renderOverview(); renderGantt(); renderProjects();
+  const label = kind === 'module' ? `阶段「${name}」` : `任务「${name}」`;
+  const modeText = next === 'calendar' ? '日历天（含周末）' : '工作日（不含周末/法定节假日）';
+  toast(`${label} 已切换为${modeText}${recalc ? `，重算 ${recalc} 行结束时间` : ''}`, 'success');
+  if (cascadedAll.length) toast(`已联动同步 ${cascadedAll.length} 个下游任务`, 'success');
 }
 
 /* ============== Inspiration ============== */
@@ -4052,33 +4231,36 @@ function duplicateScheduleProject() {
 function updateExecField(id, field, value, opts) {
   const all = [];
   let ownerSchedule = null;
-  Object.values(state.schedule).forEach(s => s.exec.forEach(t => { all.push(t); if (t.id === id) ownerSchedule = s; }));
+  let ownerPid = null;
+  Object.entries(state.schedule).forEach(([pid, s]) => s.exec.forEach(t => { all.push(t); if (t.id === id) { ownerSchedule = s; ownerPid = pid; } }));
   const t = all.find(x => x.id === id);
   if (!t) return;
   if (field === 'start' || field === 'end') {
     const parsed = parseCnDate(value);
     if (parsed) {
-      /* 周末/法定节假日自动顺延到最近工作日 */
+      const rowMode = rowDayMode(t, ownerPid);
+      /* 周末/法定节假日自动顺延到最近工作日 —— 仅「工作日」口径下生效。
+         日历天口径（大货阶段等）允许落在任意一天，不做顺延。 */
       let finalDate = parsed;
-      if (!isWorkday(parsed)) {
+      if (rowMode !== 'calendar' && !isWorkday(parsed)) {
         finalDate = nextWorkday(parsed);
         toast(`周末或法定节假日已自动调整为最近工作日：${cnDate(finalDate)}`, 'success');
       }
       const nd = parseInt(t.days) || 0;
 
       if (field === 'start') {
-        /* ── 改开始时间：结束时间 = 开始时间 + 周期（周期保持不变，第29轮）──
+        /* ── 改开始时间：结束时间 = 开始时间 + 周期（周期保持不变，口径按本行开关）──
            周期为空时不推算结束时间，仅更新开始时间。 */
         t.start = cnDate(finalDate);
-        const ne = calcEndFromStartDays(t);
+        const ne = calcEndFromStartDays(t, { pid: ownerPid });
         if (ne) t.end = ne;
       } else {
-        /* ── 改结束时间：反算开始时间（周期保持不变，第29轮）──
-           开始时间 = 结束时间 - 周期 + 1（按工作日倒推，含首尾）。
+        /* ── 改结束时间：反算开始时间（周期保持不变，口径按本行开关）──
+           开始时间 = 结束时间 - 周期 + 1（工作日倒推 / 日历天倒推）。
            周期为空时只更新结束时间。 */
         t.end = cnDate(finalDate);
         if (nd > 0) {
-          const sd = subWorkdays(finalDate, nd);
+          const sd = subDaysByMode(finalDate, nd, rowMode);
           if (sd) t.start = cnDate(sd);
         }
       }
@@ -4087,7 +4269,7 @@ function updateExecField(id, field, value, opts) {
       let cascaded = [];
       if (ownerSchedule) {
         const downs = collectDownstreamRows(ownerSchedule.exec, t.name);
-        if (downs.length > 0) cascaded = applyDownstreamCascade(downs, ownerSchedule.exec);
+        if (downs.length > 0) cascaded = applyDownstreamCascade(downs, ownerSchedule.exec, ownerPid);
       }
 
       syncPlanFromBigGoods(getScheduleByTaskId(id));
@@ -4120,9 +4302,11 @@ function updateExecField(id, field, value, opts) {
   if (field === 'days') {
     t.days = parseInt(value) || 0;
     const sd = parseCnDate(t.start);
+    const ownerPid2 = findPidByTaskId(id);
+    const rowMode = rowDayMode(t, ownerPid2);
     if (sd && t.days > 0) {
-      // 开始+周期 → 结束（工作日）—— 开始时间不变，重算结束时间
-      const ne = addWorkdays(sd, t.days);
+      // 开始+周期 → 结束（口径按本行开关）—— 开始时间不变，重算结束时间
+      const ne = addDaysByMode(sd, t.days, rowMode);
       t.end = cnDate(ne);
       // 大货到仓行改天数重算结束日期 → 计划到仓时间同步
       syncPlanFromBigGoods(getScheduleByTaskId(id));
@@ -4131,11 +4315,12 @@ function updateExecField(id, field, value, opts) {
       let cascaded = [];
       if (ownerSched) {
         const downs = collectDownstreamRows(ownerSched.s.exec, t.name);
-        if (downs.length > 0) cascaded = applyDownstreamCascade(downs, ownerSched.s.exec);
+        if (downs.length > 0) cascaded = applyDownstreamCascade(downs, ownerSched.s.exec, ownerPid2);
       }
       saveLocal();
       renderSchedule(); renderOverview(); renderGantt();
-      toast(`已按 ${t.days} 个工作日重算结束时间：${t.end}`, 'success');
+      const modeLabel = rowMode === 'calendar' ? '日历天' : '个工作日';
+      toast(`已按 ${t.days} ${modeLabel}重算结束时间：${t.end}`, 'success');
       if (cascaded.length > 0) {
         toast(`已联动同步 ${cascaded.length} 个下游任务：${cascaded.map(c => c.name).join('、')}`, 'success');
       }
@@ -4333,6 +4518,14 @@ document.addEventListener('click', (e) => {
     case 'save-sub': saveSubSection(pid); break;
     case 'add-exec-task': addExecTask(currentScheduleProject); break;
     case 'toggle-exec-status': toggleExecStatus(id); break;
+    case 'toggle-daymode': {
+      /* 第30轮：切换周期口径。先拦掉 contenteditable 的默认行为，避免误编辑模块名 */
+      e.preventDefault();
+      e.stopPropagation();
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      toggleDayMode(t.dataset.pid, t.dataset.kind, t.dataset.name);
+      break;
+    }
     case 'toggle-week-task': toggleExecStatus(id); break; // 本周任务完成 → 同步排期表（旧兼容）
     case 'wt-check': { // 本周任务 ✓：排期条目双向同步排期表；自定义条目只切本地状态
       const wt = weekTasksState();
