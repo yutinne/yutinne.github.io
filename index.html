@@ -3746,25 +3746,64 @@ const DEP_LINKS = [
 ];
 /* 任务名归一化：去首尾空格、去内部空白（兼容全角空格），避免用户改名带空格后匹配不上 */
 const normTaskName = (s) => String(s || '').replace(/[\s\u3000]/g, '');
+
+/* =====================================================================
+   第36轮：依赖链「关键词匹配」
+   =====================================================================
+   用户实际任务名常与链路登记名不完全一致：
+     · 「采购议价+下单」   vs 链路里的「采购下单」
+     · 「膜袋上机对色」     vs 链路里的「内包材+彩盒对色」
+   精确匹配会让枢纽失配 → 它指向的整批下游静默脱钩。故给这两个节点加关键词规则：
+
+     · 采购下单        → 归一化后**同时**含「采购」和「下单」
+     · 内包材+彩盒对色  → 归一化后**含「对色」
+
+   未列入 DEP_SPEC 的节点仍为精确匹配，行为与第29轮完全一致。
+   注意：关键词匹配取 exec 里**第一个命中的行**；若同项目存在多行同时满足，
+   只有第一行进链（其余保持独立，不会被联动）。 */
+const DEP_SPEC = {
+  '采购下单': { all: ['采购', '下单'] },
+  '内包材+彩盒对色': { any: ['对色'] }
+};
+/* 取某链路节点名对应的关键词规则；null = 无规则，走精确匹配 */
+const depSpecOf = (nodeName) => DEP_SPEC[normTaskName(nodeName)] || null;
+/* 某个真实任务名是否满足关键词规则 */
+function nameMatchesSpec(spec, taskName) {
+  if (!spec) return false;
+  const n = normTaskName(taskName);
+  if (spec.all && !spec.all.every(k => n.indexOf(normTaskName(k)) >= 0)) return false;
+  if (spec.any && !spec.any.some(k => n.indexOf(normTaskName(k)) >= 0)) return false;
+  return true;
+}
+/* 判断「真实任务名 taskName」是否等同于「链路节点名 nodeName」 */
+function matchesDepNode(nodeName, taskName) {
+  const spec = depSpecOf(nodeName);
+  if (!spec) return normTaskName(nodeName) === normTaskName(taskName);
+  return nameMatchesSpec(spec, taskName);
+}
 /* 在一份排期表的 exec 中按名字找行（精确匹配归一化后的名字） */
 function findExecByName(exec, name) {
   const target = normTaskName(name);
   return (exec || []).find(r => normTaskName(r.name) === target) || null;
 }
+/* 按「链路节点名」在 exec 里找行：有关键词规则的走规则（首个命中），否则精确匹配。
+   第36轮 —— 让「采购议价+下单」算作「采购下单」、「膜袋上机对色」算作「内包材+彩盒对色」。 */
+function findRowByDepNode(exec, nodeName) {
+  const spec = depSpecOf(nodeName);
+  if (!spec) return findExecByName(exec, nodeName);
+  return (exec || []).find(r => nameMatchesSpec(spec, r.name)) || null;
+}
 /* 返回某个下游任务名的所有上游任务名（用于调试/测试） */
 function upstreamsOf(taskName) {
-  const target = normTaskName(taskName);
-  return DEP_LINKS.filter(l => normTaskName(l.to) === target).map(l => l.from);
+  return DEP_LINKS.filter(l => matchesDepNode(l.to, taskName)).map(l => l.from);
 }
 /* 某个任务的直接下游名字列表（空 = 链末） */
 function directDownstreamsOf(taskName) {
-  const target = normTaskName(taskName);
-  return DEP_LINKS.filter(l => normTaskName(l.from) === target).map(l => l.to);
+  return DEP_LINKS.filter(l => matchesDepNode(l.from, taskName)).map(l => l.to);
 }
 /* 判断某任务名是否在依赖链中（作为上游或下游出现） */
 function isInDepChain(taskName) {
-  const target = normTaskName(taskName);
-  return DEP_LINKS.some(l => normTaskName(l.from) === target || normTaskName(l.to) === target);
+  return DEP_LINKS.some(l => matchesDepNode(l.from, taskName) || matchesDepNode(l.to, taskName));
 }
 /* 以某行为起点，收集所有下游行（递归，含间接下游），按层级顺序返回。
    用 visited 防环。返回 [{ row, fromName }...]。 */
@@ -3778,7 +3817,7 @@ function collectDownstreamRows(exec, startName) {
       directDownstreamsOf(fName).forEach(toName => {
         const key = normTaskName(toName);
         if (visited.has(key)) return;
-        const row = findExecByName(exec, toName);
+        const row = findRowByDepNode(exec, toName);
         if (!row) return;
         visited.add(key);
         out.push({ row, fromName: fName });
@@ -3848,7 +3887,7 @@ function applyDownstreamCascade(downs, exec, pid) {
   const p = pid || (downs.length ? findPidByTaskId(downs[0].row.id) : null);
   downs.forEach(({ row, fromName }) => {
     /* 上游结束时间：优先用本次级联中已更新的值，否则从同项目 exec 里取 */
-    const upRow = findExecByName(exec, fromName);
+    const upRow = findRowByDepNode(exec, fromName);
     const upEnd = endByName[normTaskName(fromName)] || (upRow || {}).end;
     if (!upEnd) {
       /* ── 第34轮①A：上游结束时间为空（多半是它的「周期」为空）→ 联动在此中断。
@@ -3884,8 +3923,7 @@ function applyDownstreamCascade(downs, exec, pid) {
    返回被改动的行 [{id, name}]（从近到远），另挂 .breaks。
 */
 function directUpstreamsOf(taskName) {
-  const target = normTaskName(taskName);
-  return DEP_LINKS.filter(l => normTaskName(l.to) === target).map(l => l.from);
+  return DEP_LINKS.filter(l => matchesDepNode(l.to, taskName)).map(l => l.from);
 }
 function applyUpstreamCascade(startRow, exec, pid) {
   const changed = [];
@@ -3895,7 +3933,7 @@ function applyUpstreamCascade(startRow, exec, pid) {
   for (let guard = 0; guard < 20; guard++) {
     const ups = directUpstreamsOf(cur.name);
     if (!ups.length) break;                    /* 到链首，停 */
-    const upRow = findExecByName(exec, ups[0]);
+    const upRow = findRowByDepNode(exec, ups[0]);
     if (!upRow) break;                         /* 上游这个项目里没有，停 */
     const key = normTaskName(upRow.name);
     if (visited.has(key)) break;               /* 防环 */
