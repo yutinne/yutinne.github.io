@@ -4421,6 +4421,10 @@ function updateExecField(id, field, value, opts) {
         t.start = cnDate(finalDate);
         const ne = calcEndFromStartDays(t, { pid: ownerPid });
         if (ne) t.end = ne;
+        /* ── 第35轮：改开始时间同样让上游跟随（手拉手，不许脱钩）——
+           上游结束时间对齐到本行新开始时间，上游整行平移，一路推到链首。
+           上游本来就对齐时是空操作：零写入、零提示。 ── */
+        if (ownerSchedule && t.start) upstreamed = applyUpstreamCascade(t, ownerSchedule.exec, ownerPid);
       } else {
         /* ── 改结束时间：反算开始时间（周期保持不变，口径按本行开关）──
            开始时间 = 结束时间 - 周期 + 1（工作日倒推 / 日历天倒推）。
