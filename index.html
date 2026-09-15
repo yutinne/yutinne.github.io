@@ -3843,18 +3843,89 @@ function subWorkdays(endD, n) {
    各阶段仍按自己的节奏（如大货阶段用日历天、品宣阶段用工作日）。 */
 function applyDownstreamCascade(downs, exec, pid) {
   const changed = [];
+  const breaks = [];
   const endByName = {};
   const p = pid || (downs.length ? findPidByTaskId(downs[0].row.id) : null);
   downs.forEach(({ row, fromName }) => {
     /* 上游结束时间：优先用本次级联中已更新的值，否则从同项目 exec 里取 */
-    const upEnd = endByName[normTaskName(fromName)] || (findExecByName(exec, fromName) || {}).end;
-    if (!upEnd) return;
+    const upRow = findExecByName(exec, fromName);
+    const upEnd = endByName[normTaskName(fromName)] || (upRow || {}).end;
+    if (!upEnd) {
+      /* ── 第34轮①A：上游结束时间为空（多半是它的「周期」为空）→ 联动在此中断。
+         不猜、不补周期，只把断点记下来交给调用方提示用户自己去填。 ── */
+      if (upRow && breaks.indexOf(upRow.name) < 0) breaks.push(upRow.name);
+      return;
+    }
     const before = row.start + '|' + row.end;
     setRowStart(row, upEnd, p);
     endByName[normTaskName(row.name)] = row.end;
     if (row.start + '|' + row.end !== before) changed.push({ id: row.id, name: row.name });
   });
+  changed.breaks = breaks;   /* 挂在数组上，兼容原有 .length / .map 用法 */
   return changed;
+}
+
+/* =====================================================================
+   第34轮：反向上游同步（④「倒推优先 + 上游跟着走」）
+   =====================================================================
+   触发：**只有**用户手动改「结束时间」、导致「开始时间」被倒推之后才跑一次。
+        点周期口径开关不产生倒推，所以不会走到这里（③e1）。
+
+   动作：从本行往上走，每一级：
+     1. 上游「结束时间」 ← 下游的「开始时间」（链条手拉手，不许脱钩）
+     2. 上游**整行平移**：上游「开始时间」 = 上游新结束 − 上游周期 + 1
+     3. 上游的开始时间既然动了，再拿上游当"下游"，继续往它的上游走
+   一直推到链首（没有上游的行）为止。
+
+   上游「周期」为空：
+     · 只对齐结束时间，**不平移开始时间**（没有周期就没法平移）
+     · 记入 breaks，停止往这条分支的上方走
+   防环：visited 记录归一化任务名；另有 guard 上限 20 层。
+   返回被改动的行 [{id, name}]（从近到远），另挂 .breaks。
+*/
+function directUpstreamsOf(taskName) {
+  const target = normTaskName(taskName);
+  return DEP_LINKS.filter(l => normTaskName(l.to) === target).map(l => l.from);
+}
+function applyUpstreamCascade(startRow, exec, pid) {
+  const changed = [];
+  const breaks = [];
+  const visited = new Set([normTaskName(startRow.name)]);
+  let cur = startRow;
+  for (let guard = 0; guard < 20; guard++) {
+    const ups = directUpstreamsOf(cur.name);
+    if (!ups.length) break;                    /* 到链首，停 */
+    const upRow = findExecByName(exec, ups[0]);
+    if (!upRow) break;                         /* 上游这个项目里没有，停 */
+    const key = normTaskName(upRow.name);
+    if (visited.has(key)) break;               /* 防环 */
+    visited.add(key);
+    const newEnd = cur.start;
+    if (!newEnd) break;                        /* 本行没开始时间 → 无从对齐 */
+    const before = upRow.start + '|' + upRow.end;
+    const und = parseInt(upRow.days) || 0;
+    upRow.end = newEnd;
+    if (und > 0) {
+      const ns = subDaysByMode(parseCnDate(newEnd), und, rowDayMode(upRow, pid));
+      if (ns) upRow.start = cnDate(ns);
+    } else if (breaks.indexOf(upRow.name) < 0) {
+      breaks.push(upRow.name);                 /* 周期为空 → 无法整行平移 */
+    }
+    if (upRow.start + '|' + upRow.end !== before) changed.push({ id: upRow.id, name: upRow.name });
+    if (!(und > 0) || !upRow.start) break;     /* 没平移 → 更上面不受影响，停 */
+    cur = upRow;                               /* 平移了 → 继续往上推 */
+  }
+  changed.breaks = breaks;
+  return changed;
+}
+
+/* 第34轮①A：把「周期为空导致联动中断」的节点汇总提示 —— 不替用户填周期 */
+function notifyDayBreaks(names) {
+  if (!names || !names.length) return;
+  const uniq = [];
+  names.forEach(n => { if (n && uniq.indexOf(n) < 0) uniq.push(n); });
+  if (!uniq.length) return;
+  toast(`「${uniq.join('」「')}」周期为空，联动在这里中断，其下游任务未同步 —— 请先给它填周期`, 'error');
 }
 
 /* =====================================================================
@@ -3893,12 +3964,15 @@ function toggleDayMode(pid, kind, name) {
 
   /* 受影响行里有依赖链上游的（如采购下单/推广样），级联推下游 */
   const cascadedAll = [];
+  const cascadedBreaks = [];
   targets.forEach(r => {
     const downs = collectDownstreamRows(s.exec, r.name);
     if (downs.length) {
-      applyDownstreamCascade(downs, s.exec, pid).forEach(c => {
+      const cc = applyDownstreamCascade(downs, s.exec, pid);
+      cc.forEach(c => {
         if (!cascadedAll.some(x => x.id === c.id)) cascadedAll.push(c);
       });
+      (cc.breaks || []).forEach(bn => { if (cascadedBreaks.indexOf(bn) < 0) cascadedBreaks.push(bn); });
     }
   });
 
@@ -3909,6 +3983,7 @@ function toggleDayMode(pid, kind, name) {
   const modeText = next === 'calendar' ? '日历天（算周末、不算法定节假日）' : '工作日（跳周末、不算法定节假日）';
   toast(`${label} 已切换为${modeText}${recalc ? `，重算 ${recalc} 行结束时间` : ''}`, 'success');
   if (cascadedAll.length) toast(`已联动同步 ${cascadedAll.length} 个下游任务`, 'success');
+  notifyDayBreaks(cascadedBreaks);
 }
 
 /* ============== Inspiration ============== */
@@ -4337,6 +4412,8 @@ function updateExecField(id, field, value, opts) {
           : `周末或法定节假日已自动调整为最近工作日：${cnDate(finalDate)}`, 'success');
       }
       const nd = parseInt(t.days) || 0;
+      /* 第34轮④：本次编辑中被「反向上游同步」改动的上游行，从近到远（末位最靠链首） */
+      let upstreamed = [];
 
       if (field === 'start') {
         /* ── 改开始时间：结束时间 = 开始时间 + 周期（周期保持不变，口径按本行开关）──
@@ -4351,23 +4428,34 @@ function updateExecField(id, field, value, opts) {
         t.end = cnDate(finalDate);
         if (nd > 0) {
           const sd = subDaysByMode(finalDate, nd, rowMode);
-          if (sd) t.start = cnDate(sd);
+          if (sd) {
+            t.start = cnDate(sd);
+            /* ── 第34轮④：倒推优先 —— 开始时间被倒推后，把上游的结束时间对齐过来，
+               并整行平移上游，一路推到链首，保证联动不脱钩。 ── */
+            if (ownerSchedule) upstreamed = applyUpstreamCascade(t, ownerSchedule.exec, ownerPid);
+          }
         }
       }
 
       /* ── 第33轮：周期为空时，用「开始 + 结束」自动补算周期 ── */
       const autoDays = autoFillDaysIfEmpty(t, ownerPid);
 
-      /* ── 依赖链级联：若本行有下游，逐层把下游开始时间推到自己的结束时间 ── */
+      /* ── 依赖链级联：若本行有下游，逐层把下游开始时间推到自己的结束时间 ──
+         第34轮④：反向同步若动过上游，就从被推到最顶端那一行起往下推，
+         一次覆盖整条链（含本行自己），避免上游的新结束时间漏推给它的其他下游。 */
       let cascaded = [];
       if (ownerSchedule) {
-        const downs = collectDownstreamRows(ownerSchedule.exec, t.name);
+        const rootName = upstreamed.length > 0 ? upstreamed[upstreamed.length - 1].name : t.name;
+        const downs = collectDownstreamRows(ownerSchedule.exec, rootName);
         if (downs.length > 0) cascaded = applyDownstreamCascade(downs, ownerSchedule.exec, ownerPid);
       }
 
       syncPlanFromBigGoods(getScheduleByTaskId(id));
       saveLocal();
       if (!opts || opts.render !== false) { renderSchedule(); renderOverview(); renderGantt(); renderProjects(); }
+      if (upstreamed.length > 0) {
+        toast(`已反向上游同步 ${upstreamed.length} 个任务：${upstreamed.map(c => c.name).join('、')}`, 'success');
+      }
       if (autoDays && autoDays.error) {
         toast('结束时间早于开始时间，无法自动换算周期 —— 请检查日期', 'error');
       } else if (autoDays) {
@@ -4376,6 +4464,7 @@ function updateExecField(id, field, value, opts) {
       if (cascaded.length > 0) {
         toast(`已联动同步 ${cascaded.length} 个下游任务：${cascaded.map(c => c.name).join('、')}`, 'success');
       }
+      notifyDayBreaks([].concat(cascaded.breaks || [], upstreamed.breaks || []));
       return;
     }
     t[field] = value;
@@ -4422,6 +4511,7 @@ function updateExecField(id, field, value, opts) {
       if (cascaded.length > 0) {
         toast(`已联动同步 ${cascaded.length} 个下游任务：${cascaded.map(c => c.name).join('、')}`, 'success');
       }
+      notifyDayBreaks(cascaded.breaks || []);
       return;
     }
   }
