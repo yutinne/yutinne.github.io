@@ -2094,17 +2094,20 @@ function renderOverview() {
       const d = daysFromDate(t.end);
       if (d !== null) {
         if (d < 0) {
+          /* 第37轮：已逾期只进延期预警卡（不再重复进紧急处理卡） */
           dueLate++; autoDelayed.push({ id: 'auto-' + t.id, project: projName, task: t.name, days: d, taskId: t.id, auto: true });
-          autoUrgent.push({ id: 'auto-u-' + t.id, project: projName, task: t.name + '（已逾期' + Math.abs(d) + '天）', type: '延期', taskId: t.id, auto: true });
         } else if (d <= 2) {
-          dueSoon++; autoDelayed.push({ id: 'auto-' + t.id, project: projName, task: t.name, days: d, taskId: t.id, auto: true });
-          autoUrgent.push({ id: 'auto-u-' + t.id, project: projName, task: t.name + '（' + (d === 0 ? '今天到期' : '剩' + d + '天') + '）', type: '即将到期', taskId: t.id, auto: true });
-        } else if (d <= 3) {
-          autoUrgent.push({ id: 'auto-u-' + t.id, project: projName, task: t.name + '（剩' + d + '天）', type: '关注', taskId: t.id, auto: true });
+          /* 第37轮：即将到期只进紧急处理卡（不再重复进延期预警卡） */
+          dueSoon++; autoUrgent.push({ id: 'auto-u-' + t.id, project: projName, task: t.name + '（' + (d === 0 ? '今天到期' : '剩' + d + '天') + '）', type: '即将到期', days: d, taskId: t.id, auto: true });
         }
+        /* 第37轮：删除「剩3天（关注）」档 —— 紧急处理 = 即将延期(0~2)，与顶部统计卡口径一致 */
       }
     });
   });
+  /* 第37轮：延期预警 = 已逾期按逾期天数从长到短（days 为负，升序即 -13 在 -1 前）；
+     紧急处理 = 手动项置顶 + 即将到期按紧迫程度（今天到期最前）。排序不按项目。 */
+  autoDelayed.sort((a, b) => a.days - b.days);
+  autoUrgent.sort((a, b) => a.days - b.days);
   state.delayedItems = autoDelayed;
   state.urgentItems = [...state.urgentItems.filter(u => manualUrgentIds.includes(u.id)), ...autoUrgent];
   $('#statTotal').textContent = total;
@@ -2118,7 +2121,8 @@ function renderOverview() {
   state.urgentItems.forEach(u => {
     const div = document.createElement('div');
     div.className = 'cmd-item';
-    const dotColor = u.type === '延期' ? 'var(--red)' : (u.type === '即将到期' ? 'var(--orange)' : 'var(--teal)');
+    /* 第37轮：紧急卡自动项只剩「即将到期」= 橙；手动项 = 青 */
+    const dotColor = u.auto ? 'var(--orange)' : 'var(--teal)';
     const btnText = u.auto ? '确认完成' : '处理';
     const btnAct = u.auto ? 'resolve-delayed' : 'resolve-urgent';
     const btnId = u.auto ? ('auto-' + (u.taskId || '')) : u.id;
@@ -2133,8 +2137,9 @@ function renderOverview() {
   state.delayedItems.forEach(d => {
     const div = document.createElement('div');
     div.className = 'cmd-item';
-    const dotColor = d.days < 0 ? 'var(--red)' : 'var(--orange)';
-    const label = d.days < 0 ? `已逾期 ${Math.abs(d.days)} 天` : (d.days === 0 ? '今天到期' : `还有 ${d.days} 天到期`);
+    /* 第37轮：延期预警卡只放已逾期，统一红点 + 逾期文案 */
+    const dotColor = 'var(--red)';
+    const label = `已逾期 ${Math.abs(d.days)} 天`;
     div.innerHTML = `<div class="cmd-item-main"><span class="dot" style="background: ${dotColor}"></span><span class="name">${esc(d.project)} - ${esc(d.task)}</span><span class="chip" style="font-size:9px;margin-left:6px;background:rgba(255,255,255,.6);">自动</span></div><div class="cmd-item-meta">${label}</div><div class="cmd-item-action"><button class="mini-btn" data-act="resolve-delayed" data-id="${d.id}">确认完成</button></div>`;
     dl.appendChild(div);
   });
