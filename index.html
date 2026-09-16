@@ -1147,23 +1147,6 @@ body {
 
         <div class="cmd-section">
           <div class="cmd-grid">
-            <div class="cmd-card urgent">
-              <div class="cmd-head">
-                <div class="cmd-title">⚠ 紧急处理</div>
-                <div style="display:flex;align-items:center;gap:6px;"><div class="cmd-count" id="urgentCount">0</div><button class="btn ghost small" id="addUrgentBtn" style="padding:2px 8px;font-size:11px;">+ 添加</button></div>
-              </div>
-              <div class="cmd-list" id="urgentList"></div>
-            </div>
-            <div class="cmd-card delayed">
-              <div class="cmd-head">
-                <div class="cmd-title">⏰ 延期预警</div>
-                <div class="cmd-count" id="delayedCount">0</div>
-              </div>
-              <div class="cmd-list" id="delayedList"></div>
-            </div>
-          </div>
-
-          <div class="cmd-grid">
             <div class="cmd-card today">
               <div class="cmd-head">
                 <div class="cmd-title"><span class="cmd-ico" style="background: var(--green-bg); color: var(--green);">✓</span> 今日重点</div>
@@ -1184,6 +1167,23 @@ body {
                 </div>
               </div>
               <div class="task-list" id="watchList"></div>
+            </div>
+          </div>
+
+          <div class="cmd-grid">
+            <div class="cmd-card urgent">
+              <div class="cmd-head">
+                <div class="cmd-title">⚠ 紧急处理</div>
+                <div style="display:flex;align-items:center;gap:6px;"><div class="cmd-count" id="urgentCount">0</div><button class="btn ghost small" id="addUrgentBtn" style="padding:2px 8px;font-size:11px;">+ 添加</button></div>
+              </div>
+              <div class="cmd-list" id="urgentList"></div>
+            </div>
+            <div class="cmd-card delayed">
+              <div class="cmd-head">
+                <div class="cmd-title">⏰ 延期预警</div>
+                <div class="cmd-count" id="delayedCount">0</div>
+              </div>
+              <div class="cmd-list" id="delayedList"></div>
             </div>
           </div>
         </div>
