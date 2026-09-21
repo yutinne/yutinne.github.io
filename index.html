@@ -437,12 +437,13 @@ body {
 .next-manual-badge:hover { transform: scale(1.06); background: var(--yellow); }
 .project-dates { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-bottom: 8px; }
 /* 第41轮：里程碑日期（移交生产确认单 / 大货到仓）—— 数据实时取自排期表，只读展示 */
-.project-miles { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; margin: 0 0 10px; padding: 7px 9px; background: rgba(255,255,255,.45); border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+/* 第44轮：里程碑重点突出 */
+.project-miles { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; margin: 0 0 10px; padding: 8px 10px; background: #F5EEDC; border: 1px solid var(--line-2); border-radius: 7px; font-size: 11px; }
 .project-miles .pm-item { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
-.project-miles .pm-label { color: var(--ink-3); white-space: nowrap; }
-.project-miles .pm-value { color: var(--ink); font-weight: 600; }
-.project-miles .pm-sep { color: var(--ink-3); }
-.project-miles .pm-value.empty { color: var(--ink-3); font-weight: 500; font-style: italic; }
+.project-miles .pm-label { color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+.project-miles .pm-value { color: var(--brown); font-weight: 700; font-size: 13px; }
+.project-miles .pm-sep { color: var(--line-2); }
+.project-miles .pm-value.empty { color: var(--ink-3); font-weight: 500; font-size: 11px; font-style: italic; }
 .progress { height: 6px; background: var(--cream); border-radius: 3px; overflow: hidden; position: relative; }
 .progress-bar { height: 100%; border-radius: 3px; background: var(--brown); transition: width .3s; }
 .project-card.cat-marketing .progress-bar { background: var(--yellow); }
@@ -848,6 +849,15 @@ body {
   min-height: 160px; transition: all .15s;
 }
 .insp-add:hover { border-color: var(--brown); color: var(--brown); }
+/* 第44轮：灵感卡图片 */
+.insp-imgs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.insp-img { position: relative; border-radius: 8px; overflow: hidden; border: 1px solid rgba(0,0,0,.08); }
+.insp-img img { display: block; width: 100%; cursor: zoom-in; }
+.insp-img-del { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; border: none; background: rgba(0,0,0,.45); color: #fff; font-size: 12px; line-height: 20px; cursor: pointer; padding: 0; }
+.insp-img-del:hover { background: rgba(0,0,0,.7); }
+.insp-file { display: none; }
+#inspLightbox { position: fixed; inset: 0; background: rgba(0,0,0,.78); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: zoom-out; }
+#inspLightbox img { max-width: 92vw; max-height: 92vh; border-radius: 8px; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
 .history-day {
   background: var(--paper); border: 1px solid var(--line);
   border-radius: 10px; margin-bottom: 10px; overflow: hidden;
@@ -1003,7 +1013,7 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--brown-light); }
 .review-stats {
-  display: grid; grid-template-columns: repeat(3, 1fr);
+  display: grid; grid-template-columns: repeat(2, 1fr);
   gap: 16px; margin-bottom: 20px;
 }
 .review-stat {
@@ -1329,11 +1339,6 @@ body {
           <div class="review-stat-label" data-page-node-id="dvdmpZAQs8mfoVkKbnZHuS">推进项目</div>
           <div class="review-stat-value" id="rvProjectCount" data-page-node-id="pmM2SHCyyMPYolhqXgDZUR">0</div>
           <div class="review-stat-foot" data-page-node-id="mMYQ2XwgmnHAdBsCLo3rye">个不同领域</div>
-        </div>
-        <div class="review-stat" data-page-node-id="pBqkHoyUhAwwBM11xwXfZQ">
-          <div class="review-stat-label" data-page-node-id="zmSazsjmnKGxHURa20zkYp">计时专注</div>
-          <div class="review-stat-value" id="rvFocusCount" data-page-node-id="cTzi0ZGHn3YOxx3FQYvJsC">0</div>
-          <div class="review-stat-foot" data-page-node-id="8YFOpfG5Kf8BZKQteG8mCd">分钟（未计未开启计时的工作）</div>
         </div>
       </div>
 
@@ -2567,7 +2572,7 @@ function renderMilestonesHtml(pid) {
   const short = v => String(v).replace(new RegExp('^' + curYear), '');
   const item = (label, val) =>
     `<span class="pm-item"><span class="pm-label">${label}</span><span class="pm-value${val ? '' : ' empty'}">${esc(val ? short(val) : '待定')}</span></span>`;
-  return `<div class="project-miles" title="数据来自本项目排期表，改动排期表即同步">${item('移交生产确认单', m.transfer)}<span class="pm-sep">·</span>${item('大货到仓', m.arrival)}</div>`;
+  return `<div class="project-miles" title="数据来自本项目排期表，改动排期表即同步">${item('📦 移交生产确认单', m.transfer)}<span class="pm-sep">·</span>${item('🚚 大货到仓', m.arrival)}</div>`;
 }
 function daysBetween(a, b) {
   if (!a || !b) return 0;
@@ -4162,7 +4167,7 @@ function renderInspiration() {
     } else {
       card.dataset.color = ins.color || 'yellow';
     }
-    card.innerHTML = `<div class="insp-text" contenteditable="true" data-id="${ins.id}" data-placeholder="记录一个灵感...">${esc(ins.text)}</div><div class="insp-meta"><span>📅 ${esc(ins.date)}</span><div class="insp-actions"><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="yellow" style="background:#F2D870;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="green" style="background:#B8D6BE;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="blue" style="background:#9ED3D9;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="purple" style="background:#C5B5D2;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="pink" style="background:#E8B8AC;">·</button><label class="insp-color-pick" title="自定义颜色（吸色器）"><input type="color" data-act="insp-pick-color" data-id="${ins.id}" value="${ins.color && ins.color.startsWith('#') ? ins.color : '#F2D870'}"></label><button class="icon-btn danger" data-act="delete-insp" data-id="${ins.id}">×</button></div></div>`;
+    card.innerHTML = `<div class="insp-text" contenteditable="true" data-id="${ins.id}" data-placeholder="记录一个灵感...">${esc(ins.text)}</div>${inspImgsHtml(ins)}<div class="insp-meta"><span>📅 ${esc(ins.date)}</span><div class="insp-actions"><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="yellow" style="background:#F2D870;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="green" style="background:#B8D6BE;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="blue" style="background:#9ED3D9;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="purple" style="background:#C5B5D2;">·</button><button class="icon-btn" data-act="insp-color" data-id="${ins.id}" data-color="pink" style="background:#E8B8AC;">·</button><label class="insp-color-pick" title="自定义颜色（吸色器）"><input type="color" data-act="insp-pick-color" data-id="${ins.id}" value="${ins.color && ins.color.startsWith('#') ? ins.color : '#F2D870'}"></label><label class="icon-btn" title="添加图片" style="cursor:pointer;">🖼<input type="file" accept="image/*" multiple class="insp-file" data-id="${ins.id}"></label><button class="icon-btn danger" data-act="delete-insp" data-id="${ins.id}">×</button></div></div>`;
     grid.appendChild(card);
   });
   const add = document.createElement('div');
@@ -4205,7 +4210,6 @@ function renderReview() {
 
   $('#rvRecordCount').textContent = recentRecords.length;
   $('#rvProjectCount').textContent = projectsWithDone.size;
-  $('#rvFocusCount').textContent = state.timer.minutes || 0;
 
   const rl = $('#rvRecentList');
   rl.innerHTML = '';
@@ -4718,6 +4722,100 @@ function addInspiration() {
   saveLocal(); renderInspiration();
   setTimeout(() => { const first = $('.insp-card .insp-text'); if (first) first.focus(); }, 50);
 }
+/* ===== 第44轮：灵感卡图片 ===== */
+const INSP_IMG_MAX = 800;              /* 压缩后长边（省空间档） */
+const INSP_QUOTA = 4.2 * 1024 * 1024;  /* localStorage 安全水位（总容量约5MB） */
+function canFitInspImages(extraChars) {
+  try { return JSON.stringify(state).length + extraChars < INSP_QUOTA; } catch (e) { return true; }
+}
+function compressToDataUrl(file, cb) {
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement('canvas');
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > INSP_IMG_MAX) { h = Math.round(h * INSP_IMG_MAX / w); w = INSP_IMG_MAX; } }
+      else { if (h > INSP_IMG_MAX) { w = Math.round(w * INSP_IMG_MAX / h); h = INSP_IMG_MAX; } }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      cb(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = function() { toast('图片读取失败', 'error'); };
+    img.src = ev.target.result;
+  };
+  reader.onerror = function() { toast('图片读取失败', 'error'); };
+  try { reader.readAsDataURL(file); } catch (e) { toast('图片读取失败', 'error'); }
+}
+function addInspImages(id, dataUrls) {
+  const ins = state.inspiration.find(x => x.id === id);
+  if (!ins || !dataUrls || !dataUrls.length) return;
+  if (!Array.isArray(ins.imgs)) ins.imgs = [];
+  const extra = dataUrls.reduce((n, d) => n + String(d).length, 0);
+  if (!canFitInspImages(extra)) { toast('存储空间不足（约5MB上限），删几张旧图或旧灵感后再试', 'error'); return; }
+  ins.imgs = ins.imgs.concat(dataUrls);
+  saveLocal(); renderInspiration();
+}
+function addInspFiles(id, files) {
+  const list = Array.prototype.slice.call(files || []);
+  if (!list.length) return;
+  let left = list.length;
+  const out = [];
+  list.forEach(f => compressToDataUrl(f, d => { out.push(d); if (--left === 0) addInspImages(id, out); }));
+}
+function removeInspImage(id, idx) {
+  const ins = state.inspiration.find(x => x.id === id);
+  if (!ins || !Array.isArray(ins.imgs)) return;
+  ins.imgs.splice(idx, 1);
+  saveLocal(); renderInspiration();
+}
+function inspImgsHtml(ins) {
+  if (!ins.imgs || !ins.imgs.length) return '';
+  return '<div class="insp-imgs">' + ins.imgs.map((d, i) =>
+    `<div class="insp-img"><img src="${d}" data-act="insp-view" data-id="${ins.id}" data-idx="${i}" alt="灵感图"><button class="insp-img-del" data-act="insp-del-img" data-id="${ins.id}" data-idx="${i}" title="删除图片">×</button></div>`).join('') + '</div>';
+}
+function openInspLightbox(src) {
+  let lb = document.getElementById('inspLightbox');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.id = 'inspLightbox';
+    lb.addEventListener('click', () => lb.remove());
+    document.body.appendChild(lb);
+  }
+  lb.innerHTML = `<img src="${src}" alt="预览">`;
+}
+function handleInspPaste(e) {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return false;
+  const files = [];
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type && items[i].type.indexOf('image/') === 0) {
+      const f = items[i].getAsFile();
+      if (f) files.push(f);
+    }
+  }
+  if (!files.length) return false;
+  const page = document.getElementById('page-inspiration');
+  const active = page && page.classList.contains('active');
+  const card = e.target && e.target.closest ? e.target.closest('.insp-card') : null;
+  if (card && card.dataset.id) {
+    e.preventDefault();
+    addInspFiles(card.dataset.id, files);
+    toast('图片已贴入当前灵感', 'success');
+    return true;
+  }
+  if (active) {
+    e.preventDefault();
+    const colors = ['yellow', 'green', 'blue', 'purple', 'pink'];
+    const ins = { id: uid(), text: '', color: colors[Math.floor(Math.random() * colors.length)], date: today(), imgs: [] };
+    state.inspiration.unshift(ins);
+    renderInspiration();
+    addInspFiles(ins.id, files);
+    toast('已新建灵感并贴入图片', 'success');
+    return true;
+  }
+  return false;
+}
 function updateInspiration(id, text) {
   const ins = state.inspiration.find(x => x.id === id);
   if (ins) { ins.text = text; saveLocal(); }
@@ -4978,6 +5076,8 @@ document.addEventListener('click', (e) => {
     }
     case 'insp-color': setInspirationColor(id, color); break;
     case 'delete-insp': deleteInspiration(id); break;
+    case 'insp-del-img': removeInspImage(id, Number(t.dataset.idx)); break;
+    case 'insp-view': openInspLightbox(t.src); break;
     case 'toggle-history': { const day = t.closest('.history-day'); day.classList.toggle('open'); break; }
     case 'add-today-btn': { openAddTaskModal('today'); break; }
     case 'add-watch-btn': { openAddTaskModal('watch'); break; }
@@ -4988,6 +5088,8 @@ document.addEventListener('click', (e) => {
 document.addEventListener('input', (e) => {
   if (e.target.dataset.act === 'insp-pick-color') setInspirationCustomColor(e.target.dataset.id, e.target.value);
 });
+
+document.addEventListener('paste', (e) => { handleInspPaste(e); });
 
 document.addEventListener('change', (e) => {
   /* === Avatar image upload === */
@@ -5030,6 +5132,12 @@ document.addEventListener('change', (e) => {
       img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
+    return;
+  }
+  /* === Inspiration image upload === */
+  if (e.target.classList && e.target.classList.contains('insp-file')) {
+    addInspFiles(e.target.dataset.id, e.target.files);
+    e.target.value = '';
     return;
   }
   /* === End avatar upload === */
