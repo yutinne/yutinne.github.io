@@ -436,6 +436,12 @@ body {
 }
 .next-manual-badge:hover { transform: scale(1.06); background: var(--yellow); }
 .project-dates { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-3); margin-bottom: 8px; }
+/* 第41轮：里程碑日期（移交生产确认单 / 大货到仓）—— 数据实时取自排期表，只读展示 */
+.project-miles { display: flex; flex-direction: column; gap: 3px; margin: 0 0 10px; padding: 7px 9px; background: rgba(255,255,255,.45); border: 1px solid var(--line); border-radius: 7px; font-size: 11px; }
+.project-miles .pm-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.project-miles .pm-label { color: var(--ink-3); white-space: nowrap; }
+.project-miles .pm-value { color: var(--ink); font-weight: 600; text-align: right; }
+.project-miles .pm-value.empty { color: var(--ink-3); font-weight: 500; font-style: italic; }
 .progress { height: 6px; background: var(--cream); border-radius: 3px; overflow: hidden; position: relative; }
 .progress-bar { height: 100%; border-radius: 3px; background: var(--brown); transition: width .3s; }
 .project-card.cat-marketing .progress-bar { background: var(--yellow); }
@@ -2516,7 +2522,8 @@ function renderProjects() {
     const manualBadge = (p.nextStepManual && p.nextStep)
       ? `<span class="next-manual-badge" data-act="next-restore-auto" title="当前为手动填写，不会随排期表更新 · 点击恢复自动识别（取未开始任务中距今天最近的）">手动 ↺</span>`
       : '';
-    card.innerHTML = `<div class="project-cat" contenteditable="true" data-field="proj.category" data-pid="${p.id}">${esc(p.category)}</div><h3 class="project-name" contenteditable="true" data-field="proj.name" data-pid="${p.id}">${esc(p.name)}</h3><div class="project-next">下一步: <strong contenteditable="true" data-field="proj.nextStep" data-pid="${p.id}">${esc(nextText)}</strong>${nextBadge}${manualBadge}</div><div class="project-dates"><span contenteditable="true" data-field="proj.startDate" data-pid="${p.id}">${esc(p.startDate)}</span> 开始 · <span contenteditable="true" data-field="proj.endDate" data-pid="${p.id}">${esc(p.endDate)}</span> 截止</div><div class="progress"><div class="progress-bar" style="width: ${p.progress}%"></div></div><div class="project-foot"><span>${daysBetween(p.startDate, p.endDate)} 个工作日</span><span class="pct">${p.progress}% 完成 · <span class="edit-hint">点文字可编辑</span></span></div>`;
+    const milesHtml = renderMilestonesHtml(p.id);
+    card.innerHTML = `<div class="project-cat" contenteditable="true" data-field="proj.category" data-pid="${p.id}">${esc(p.category)}</div><h3 class="project-name" contenteditable="true" data-field="proj.name" data-pid="${p.id}">${esc(p.name)}</h3><div class="project-next">下一步: <strong contenteditable="true" data-field="proj.nextStep" data-pid="${p.id}">${esc(nextText)}</strong>${nextBadge}${manualBadge}</div>${milesHtml}<div class="project-dates"><span contenteditable="true" data-field="proj.startDate" data-pid="${p.id}">${esc(p.startDate)}</span> 开始 · <span contenteditable="true" data-field="proj.endDate" data-pid="${p.id}">${esc(p.endDate)}</span> 截止</div><div class="progress"><div class="progress-bar" style="width: ${p.progress}%"></div></div><div class="project-foot"><span>${daysBetween(p.startDate, p.endDate)} 个工作日</span><span class="pct">${p.progress}% 完成 · <span class="edit-hint">点文字可编辑</span></span></div>`;
     card.addEventListener('click', (e) => {
       if (e.target.closest('[data-act="next-restore-auto"]')) {
         p.nextStepManual = false;
@@ -2533,6 +2540,31 @@ function renderProjects() {
   if (state.projects.length === 0) grid.innerHTML = '<div class="empty">还没有项目，点上方"+ 新建项目"开始</div>';
 }
 
+/* ===== 第41轮：项目卡片里程碑日期 =====
+   实时从排期表读取「移交生产确认单」与「大货到仓」两行，卡片渲染时现算，
+   不落任何缓存字段 —— 排期表一改，切回项目页即一致，不存在两套真相。
+   任务名宽松匹配（trim + 包含），口径与 syncPlanFromBigGoods 完全统一：结束时间优先，其次开始时间。 */
+const PROJECT_MILESTONES = [
+  { key: 'transfer', kw: '移交生产确认单' },
+  { key: 'arrival', kw: '大货到仓' }
+];
+function projectMilestones(pid) {
+  const out = { transfer: '', arrival: '' };
+  const s = state.schedule[pid];
+  if (!s || !Array.isArray(s.exec)) return out;
+  PROJECT_MILESTONES.forEach(rule => {
+    const row = s.exec.find(t => t && t.name && String(t.name).trim().includes(rule.kw));
+    if (!row) return;
+    out[rule.key] = String(row.end || row.start || '').trim();
+  });
+  return out;
+}
+function renderMilestonesHtml(pid) {
+  const m = projectMilestones(pid);
+  const row = (label, val) =>
+    `<div class="pm-row"><span class="pm-label">${label}</span><span class="pm-value${val ? '' : ' empty'}">${esc(val || '待定')}</span></div>`;
+  return `<div class="project-miles" title="数据来自本项目排期表，改动排期表即同步">${row('移交生产确认单', m.transfer)}${row('大货到仓', m.arrival)}</div>`;
+}
 function daysBetween(a, b) {
   if (!a || !b) return 0;
   const d1 = new Date(a), d2 = new Date(b);
