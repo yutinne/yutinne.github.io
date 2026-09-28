@@ -1629,8 +1629,14 @@ async function initSupabase() {
   }
   try {
     setConnStatus('syncing');
-    /* 第45轮：persistSession=false —— 本工作台永远匿名直连（apikey 即身份），不让 SDK 读写 sb-*-auth-token 会话存储，杜绝坏 token 混进 Authorization 导致 401 */
-    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { persistSession: false });
+    /* 第45轮B：本工作台永远匿名直连（publishable key 即身份），两道保险根治 401：
+       ① auth.persistSession=false —— 不读/写 sb-*-auth-token 会话存储，坏 token 无从进入（必须嵌在 auth 里，顶层写法会被 SDK 忽略——第45轮已踩坑，Node 实证 PGRST301 复现）
+       ② global.headers.Authorization 钉死 Bearer key —— SDK 见头已存在即跳过 token 注入（probe45_fix.js c4 实测 200）
+       ③ autoRefreshToken=false —— 匿名场景无令牌可刷，关掉定时器 */
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: 'Bearer ' + SUPABASE_KEY } }
+    });
     const { error } = await supabaseClient.from('workbench').select('id').limit(1);
     if (error) throw error;
     setConnStatus('connected');
