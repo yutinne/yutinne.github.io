@@ -1633,10 +1633,14 @@ async function initSupabase() {
        ① auth.persistSession=false —— 不读/写 sb-*-auth-token 会话存储，坏 token 无从进入（必须嵌在 auth 里，顶层写法会被 SDK 忽略——第45轮已踩坑，Node 实证 PGRST301 复现）
        ② global.headers.Authorization 钉死 Bearer key —— SDK 见头已存在即跳过 token 注入（probe45_fix.js c4 实测 200）
        ③ autoRefreshToken=false —— 匿名场景无令牌可刷，关掉定时器 */
-    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false },
-      global: { headers: { Authorization: 'Bearer ' + SUPABASE_KEY } }
-    });
+    if (!supabaseClient) {
+      /* 第45轮C：只在首次创建。此前每次重连都 new 一个 GoTrueClient（实例越堆越多），
+         persistSession:false 下实例无会话状态，复用完全安全 */
+      supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false },
+        global: { headers: { Authorization: 'Bearer ' + SUPABASE_KEY } }
+      });
+    }
     const { error } = await supabaseClient.from('workbench').select('id').limit(1);
     if (error) throw error;
     setConnStatus('connected');
@@ -1645,7 +1649,7 @@ async function initSupabase() {
     await pullFromCloud();
     startPolling();
   } catch (e) {
-    supabaseClient = null;
+    console.error('[同步诊断] 连接失败:', e);
     _scheduleReconnect();
   }
 }
@@ -1699,6 +1703,7 @@ async function pullFromCloud() {
     }
     setConnStatus('connected');
   } catch (e) {
+    console.error('[同步诊断] 拉取失败:', e);
     setConnStatus('disconnected', '密码错误或连接失败');
   }
 }
@@ -1720,6 +1725,7 @@ async function pushToCloud() {
     lastLocalSaveTime = lastSyncTime; /* 推送成功后同步时间戳，防止轮询立即拉回刚推的数据 */
     setConnStatus('connected');
   } catch (e) {
+    console.error('[同步诊断] 推送失败:', e);
     setConnStatus('disconnected', '同步失败');
   }
 }
