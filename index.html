@@ -1598,7 +1598,18 @@ async function encryptData(obj, password) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(password, salt);
   const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
-  const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  /* 第45轮D：分块转 base64。旧写法 String.fromCharCode(...new Uint8Array(buf)) 一次性把
+     整个密文展开成函数参数 —— 密文越过 ~12 万字节即 RangeError: Maximum call stack size
+     exceeded（实测 90KB state 起全爆）。state 长大是必然，此前「同步失败」即此因。
+     分块每次只展开 32768 字节，任意体积都稳。 */
+  const u8ToB64 = u8 => {
+    let s = '';
+    for (let i = 0; i < u8.length; i += 0x8000) {
+      s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+    }
+    return btoa(s);
+  };
+  const b64 = buf => u8ToB64(new Uint8Array(buf));
   return { salt: b64(salt), iv: b64(iv), data: b64(ct) };
 }
 
