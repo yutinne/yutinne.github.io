@@ -12,9 +12,9 @@
 /* 双 CDN 加载 Supabase SDK：jsdelivr 失败自动切 unpkg，国内手机也能加载 */
 (function(){
   var CDNS = [
-    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
-    'https://gcore.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js',
-    'https://unpkg.com/@supabase/supabase-js@2'
+    'https://unpkg.com/@supabase/supabase-js@2.112.0/dist/umd/supabase.js',
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.0/dist/umd/supabase.js',
+    'https://gcore.jsdelivr.net/npm/@supabase/supabase-js@2.112.0/dist/umd/supabase.js'
   ];
   var i = 0;
   function loadNext(){
@@ -1629,7 +1629,8 @@ async function initSupabase() {
   }
   try {
     setConnStatus('syncing');
-    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    /* 第45轮：persistSession=false —— 本工作台永远匿名直连（apikey 即身份），不让 SDK 读写 sb-*-auth-token 会话存储，杜绝坏 token 混进 Authorization 导致 401 */
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, { persistSession: false });
     const { error } = await supabaseClient.from('workbench').select('id').limit(1);
     if (error) throw error;
     setConnStatus('connected');
