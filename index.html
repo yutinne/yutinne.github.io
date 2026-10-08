@@ -564,6 +564,9 @@ body {
 .exec-table {
   width: 100%; border-collapse: collapse; font-size: 12px;
   table-layout: fixed;
+  /* 第46轮：全局最小宽度 —— 分屏/窄窗口时表格保持可读宽度出横向滚动条，
+     而不是把「开始/结束时间」等列压缩到只剩图标（table-layout:fixed 下无宽度的 col 会被压） */
+  min-width: 1080px;
 }
 .exec-table th, .exec-table td {
   border: 1px solid var(--line); padding: 8px;
@@ -577,7 +580,7 @@ body {
 }
 .exec-table th.c-module, .exec-table td.c-module { width: 100px; }
 .exec-table th.c-task, .exec-table td.c-task { width: 440px; min-width: 440px; }
-.exec-table th.c-date, .exec-table td.c-date { width: 120px; }
+.exec-table th.c-date, .exec-table td.c-date { width: 120px; min-width: 120px; }
 .exec-table th.c-days, .exec-table td.c-days { width: 52px; }
 .exec-table th.c-owner, .exec-table td.c-owner { width: 90px; }
 .exec-table th.c-risk, .exec-table td.c-risk { width: 85px; }
@@ -965,7 +968,7 @@ body {
 }
 .save-flash.show { opacity: 1; }
 .save-flash .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
-@media (max-width: 900px) {
+@media (max-width: 1080px) {
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .project-grid { grid-template-columns: 1fr 1fr; }
   .cmd-grid { grid-template-columns: 1fr; }
@@ -2724,7 +2727,9 @@ function renderExecTable(rows, pid) {
      只影响本次渲染，不写回用户保存的 colWidths；用户设得更宽时以用户的为准。 */
   const daysFloor = rows.some(r => isMaskTask(r.name)) ? 100 : 0;
   const colStyle = i => {
-    const w = i === 4 ? Math.max(cw[i] || 0, daysFloor) : (cw[i] || 0);
+    /* 第46轮：开始/结束列（i=2/3）兜底 150px —— colWidths 固化值缺这两列，
+       不兜底时 col 无宽度，分屏下被 fixed 布局压扁（用户报「开始结束时间被压缩掉」） */
+    const w = Math.max(cw[i] || 0, i === 4 ? daysFloor : 0, (i === 2 || i === 3) ? 150 : 0);
     return w ? ` style="width:${w}px;min-width:${w}px"` : '';
   };
   const colgroupHtml = '<colgroup>' + colKeys.map((k, i) => `<col${colStyle(i)}>`).join('') + '</colgroup>';
