@@ -261,6 +261,16 @@ body {
 .wt-add-form input[type="text"] { flex: 1; min-width: 150px; font-size: 16px; }
 .wt-add-form input[type="date"] { font-size: 16px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; }
 .wt-add-form .btn { flex-shrink: 0; }
+.wt-add-form #wtAddProject { flex: 0 1 190px; font-size: 16px; }
+/* 第47轮：批量导入预览 */
+#wtimpText { width: 100%; box-sizing: border-box; min-height: 170px; font-size: 14px; line-height: 1.6; padding: 10px; border: 1px solid var(--line); border-radius: 8px; resize: vertical; font-family: inherit; }
+.wtimp-head { font-size: 12px; color: var(--ink-3); margin: 0 0 10px; line-height: 1.7; }
+.wtimp-head b { color: var(--ink); }
+.wtimp-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.wtimp-row input[type="text"] { font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.wtimp-proj { flex: 0 1 200px; min-width: 140px; }
+.wtimp-name { flex: 1 1 200px; min-width: 170px; }
+.wtimp-row input[type="date"] { font-size: 13px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 6px; }
 /* toast 内的撤销按钮（指针事件需要恢复，toast 本体是 pointer-events:none） */
 .toast-act { margin-left: 10px; padding: 2px 12px; border-radius: 12px; background: rgba(255,255,255,.22); color: #fff; cursor: pointer; font-size: 12px; font-weight: 600; border: none; pointer-events: auto; }
 .toast-act:hover { background: rgba(255,255,255,.34); }
@@ -1221,6 +1231,7 @@ body {
           <div class="section-action" data-page-node-id="AXhR0EcHw3pmRI8hw72UH6">
             <span class="chips" id="weekTaskStats" data-page-node-id="vQjCwUDzMNDLdVOq7XeA55">今日 0 · 明日 0 · 共 0</span>
             <button type="button" class="btn small" id="weekTaskSortBtn" title="清空手动拖拽顺序，恢复按结束时间自动排序" style="display:none;" data-page-node-id="8ArtKH7mGRjZ0L4IRIFzCl">恢复默认排序</button>
+            <button type="button" class="btn small" id="weekTaskImportBtn" title="粘贴文本批量导入：每行「项目 | 任务 | 日期」">⇪ 导入</button>
             <button type="button" class="btn small primary" id="weekTaskAddBtn" data-page-node-id="Obj7nQeLaoUugNjoQJ7X6a">+ 添加</button>
           </div>
         </div>
@@ -2390,7 +2401,7 @@ function renderWeekTasks() {
   // ② 自定义条目（用户手动添加，始终显示，不参与本周过滤）
   const customEntries = (wt.custom || []).map(c => {
     const sd = parseCnDate(c.start), ed = parseCnDate(c.end);
-    return { key: 'c:' + c.id, src: 'custom', pid: '', projName: '自定义', name: c.name, sd: sd || todayD, ed: ed || tomorrow, done: c.status === 'done', col: '#8A6BAB', startStr: c.start || '未设日期', endStr: c.end || '未设日期' };
+    return { key: 'c:' + c.id, src: 'custom', pid: '', projName: c.project || '自定义', name: c.name, sd: sd || todayD, ed: ed || tomorrow, done: c.status === 'done', col: '#8A6BAB', startStr: c.start || '未设日期', endStr: c.end || '未设日期' };
   });
   const entries = execEntries.concat(customEntries);
   if (entries.length === 0) {
@@ -2449,7 +2460,9 @@ function showWeekTaskAddForm() {
   const form = document.createElement('div');
   form.id = 'wtAddForm';
   form.className = 'wt-add-form';
+  const lastCustom = (weekTasksState().custom || [])[0] || {};
   form.innerHTML = `<input type="text" id="wtAddName" placeholder="任务名称（仅在本周任务中，不进排期表）" maxlength="50">
+    <input type="text" id="wtAddProject" list="wtAddProjectList" placeholder="关联项目（空 = 自定义）" maxlength="30" value="${esc(lastCustom.project || '')}" autocomplete="off"><datalist id="wtAddProjectList">${projectNameOptions().map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist>
     <input type="date" id="wtAddStart" value="${toDateInput(todayD)}">
     <span style="color:var(--ink-3);font-size:12px;">~</span>
     <input type="date" id="wtAddEnd" value="${toDateInput(tomorrow)}">
@@ -2464,11 +2477,109 @@ function showWeekTaskAddForm() {
     const e = form.querySelector('#wtAddEnd').value;
     if (!s || !e || e < s) { toast('日期无效：结束日期不能早于开始日期', 'warn'); return; }
     const wt = weekTasksState();
-    wt.custom.push({ id: uid(), name, start: cnDateStr(new Date(s)), end: cnDateStr(new Date(e)), status: 'todo' });
+    const proj = form.querySelector('#wtAddProject').value.trim();
+    wt.custom.push({ id: uid(), name, start: cnDateStr(new Date(s)), end: cnDateStr(new Date(e)), status: 'todo', project: proj });
     saveLocal(); renderOverview();
     toast('已添加（不影响排期表）', 'success');
   });
   form.querySelector('#wtAddCancel').addEventListener('click', () => form.remove());
+}
+
+/* ============== 第47轮：批量导入（每行：项目 | 任务 | 日期） ============== */
+function wtParseFlexDate(s) {
+  s = String(s || '').trim().replace(/年|月/g, '-').replace(/日/g, '').replace(/\./g, '/');
+  const y = new Date().getFullYear();
+  const pad = n => String(n).padStart(2, '0');
+  let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
+  if (m) return m[1] + '-' + pad(m[2]) + '-' + pad(m[3]);
+  m = s.match(/^(\d{1,2})[-\/](\d{1,2})$/);
+  if (m) return y + '-' + pad(m[1]) + '-' + pad(m[2]);
+  return null;
+}
+function wtParseRange(r) {
+  const seg = String(r || '').split(/~|～|—|–|至|到/).map(s => s.trim()).filter(Boolean);
+  if (!seg.length) return null;
+  const a = wtParseFlexDate(seg[0]);
+  const b = wtParseFlexDate(seg[1] || seg[0]);
+  if (!a && !b) return null;
+  return { start: a, end: b || a };
+}
+function parseWtImport(text) {
+  const out = [];
+  String(text || '').split(/\r?\n/).forEach(raw => {
+    const line = raw.trim();
+    if (!line || line.charAt(0) === '#') return;
+    const parts = line.split(/[｜|]/).map(s => s.trim()).filter(Boolean);
+    let project = '', name = line, range = '';
+    if (parts.length >= 2) {
+      project = parts[0];
+      const tail = parts[parts.length - 1];
+      if (parts.length >= 3 && wtParseRange(tail)) { range = tail; name = parts.slice(1, -1).join(' | '); }
+      else name = parts.slice(1).join(' | ');
+    }
+    out.push({ project: project, name: name, range: range });
+  });
+  return out;
+}
+function openWtImportModal() {
+  openModal('批量导入本周任务', `
+    <div class="wtimp-head">每行一条：<b>项目 | 任务 | 日期</b>（日期可省：支持 10/12、10月12日、10/12~10/16；无日期默认今天~本周日）。项目名不在已有列表 = 作为分组标签直接用，预览时也可下拉改成已有项目。</div>
+    <textarea id="wtimpText" placeholder="极细眼线液笔-降本 | 完成稿件审核发出数码稿打样&#10;三部曲控本-翠黛 | 彩盒数码稿确认 | 10/12"></textarea>
+  `, `<button class="btn ghost" data-act="modal-close">取消</button><button class="btn" id="wtimpParse">解析预览</button>`);
+  const ta = $('#wtimpText'); if (ta) ta.focus();
+  $('#wtimpParse').addEventListener('click', () => {
+    const items = parseWtImport($('#wtimpText').value);
+    if (!items.length) { toast('没有可解析的内容', 'warn'); return; }
+    renderWtImportPreview(items);
+  });
+}
+function renderWtImportPreview(items) {
+  const todayD = new Date(); todayD.setHours(0, 0, 0, 0);
+  const dow = todayD.getDay();
+  const monday = new Date(todayD); monday.setDate(todayD.getDate() - (dow === 0 ? 6 : dow - 1));
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  const dlNames = Array.from(new Set(projectNameOptions().concat(items.map(i => i.project).filter(Boolean))));
+  const rows = items.map(it => {
+    const r = wtParseRange(it.range) || {};
+    const sd = r.start || toDateInput(todayD), ed = r.end || toDateInput(sunday);
+    return `<div class="wtimp-row">
+      <input type="checkbox" class="wtimp-ck" checked title="勾选 = 导入这条">
+      <input type="text" class="wtimp-proj" list="wtimp-dl" value="${esc(it.project)}" placeholder="项目（空 = 自定义）" autocomplete="off">
+      <input type="text" class="wtimp-name" value="${esc(it.name)}" placeholder="任务内容">
+      <input type="date" class="wtimp-sd" value="${sd}">
+      <span style="color:var(--ink-3);">~</span>
+      <input type="date" class="wtimp-ed" value="${ed}">
+      <button type="button" class="icon-btn danger wtimp-rm" title="这条不导入">✕</button>
+    </div>`;
+  }).join('');
+  openModal(`批量导入 · 预览 ${items.length} 条`, `
+    <div class="wtimp-head">确认前可改：勾选决定是否导入、项目可下拉换成已有项目、日期可改。项目留空显示为「自定义」。</div>
+    <datalist id="wtimp-dl">${dlNames.map(n => `<option value="${esc(n)}"></option>`).join('')}</datalist>
+    ${rows}
+  `, `<button class="btn ghost" data-act="modal-close">取消</button><button class="btn ghost" id="wtimpBack">返回修改</button><button class="btn" id="wtimpOk">确认导入</button>`);
+  $('#wtimpBack').addEventListener('click', openWtImportModal);
+  $('#wtimpOk').addEventListener('click', confirmWtImport);
+  document.querySelectorAll('#modalBody .wtimp-rm').forEach(btn => {
+    btn.addEventListener('click', () => { const r = btn.closest('.wtimp-row'); if (r) r.remove(); });
+  });
+}
+function confirmWtImport() {
+  const rows = Array.from(document.querySelectorAll('#modalBody .wtimp-row'));
+  const wt = weekTasksState();
+  let added = 0;
+  rows.forEach(row => {
+    if (!row.querySelector('.wtimp-ck').checked) return;
+    const name = row.querySelector('.wtimp-name').value.trim();
+    if (!name) return;
+    const project = row.querySelector('.wtimp-proj').value.trim();
+    const s = row.querySelector('.wtimp-sd').value;
+    const e = row.querySelector('.wtimp-ed').value;
+    wt.custom.push({ id: uid(), name: name, project: project, start: s ? cnDateStr(new Date(s)) : '', end: e ? cnDateStr(new Date(e)) : '', status: 'todo' });
+    added++;
+  });
+  if (!added) { toast('没有勾选任何有效任务', 'warn'); return; }
+  saveLocal(); renderOverview(); closeModal();
+  toast('已批量导入 ' + added + ' 条任务（不影响排期表）', 'success');
 }
 
 function renderHistory() {
@@ -5398,6 +5509,7 @@ $('#addScheduleProjectBtn').addEventListener('click', () => openProjectModal('__
 $('#dupScheduleProjectBtn').addEventListener('click', duplicateScheduleProject);
 /* 本周任务：添加 / 恢复默认排序 */
 $('#weekTaskAddBtn').addEventListener('click', showWeekTaskAddForm);
+$('#weekTaskImportBtn').addEventListener('click', openWtImportModal);
 $('#weekTaskSortBtn').addEventListener('click', () => {
   weekTasksState().order = [];
   saveLocal(); renderOverview();
