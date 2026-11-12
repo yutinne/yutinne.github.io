@@ -1719,6 +1719,7 @@ async function pullFromCloud() {
         lastLocalSaveTime = cloudTime;
         _freshOrigin = false; /* 已从云端取回，恢复正常双向同步 */
         ensureCompletedAt(); /* 第20轮：云端拉回的旧数据也跑一次迁移（幂等） */
+        ensureStageOrderV1(); /* 2026-11-12：云端拉回数据同步迁移环节顺序（幂等，且会把修正结果回推云端） */
         renderAll();
         toast('已从云端同步最新数据', 'success');
       }
@@ -1838,10 +1839,10 @@ function getDefaultExecTemplate() {
     makeRow('包材设计阶段', '2.包装部分', '内包材设计（第二轮）', '设计', ''),
     makeRow('包材设计阶段', '2.包装部分', '确认最终设计方案', '产品经理,设计', ''),
     makeRow('包材设计阶段', '2.包装部分', '稿件套版', '设计', ''),
-    makeRow('初步移交', '2.包装部分', '初步移交采购核价', '产品经理,采购', ''),
     makeRow('打样阶段', '2.包装部分', '内包材打样（第一轮）', '产品经理,设计', ''),
     makeRow('打样阶段', '2.包装部分', '内包材打样（第二轮）', '产品经理,设计', ''),
     makeRow('打样阶段', '2.包装部分', '确认最终内包材设计方案', '产品经理,设计', ''),
+    makeRow('初步移交', '2.包装部分', '初步移交采购核价', '产品经理,采购', ''),
     makeRow('设计+文案', '2.包装部分', '彩盒设计（第一轮）', '设计', ''),
     makeRow('设计+文案', '2.包装部分', '彩盒设计（第二轮）', '设计', ''),
     makeRow('设计+文案', '2.包装部分', '确认最终彩盒设计方案', '产品经理,设计', ''),
@@ -3807,6 +3808,25 @@ function ensureCompletedAt() {
         }
       }
     });
+  });
+  if (changed) saveLocal();
+}
+/* 2026-11-12 迁移（幂等）：把「初步移交采购核价」环节移到「确认最终内包材设计方案」之后。
+   用户要求新建及存量项目均按此顺序。仅按名称重排 exec 数组顺序，不触碰任何日期/状态/进度，
+   也不动 format/rowHeights（它们按行 id 索引，与数组顺序无关）；缺关键行或已是新顺序则跳过，避免误伤自定义项目。 */
+function ensureStageOrderV1() {
+  if (!state.schedule) return;
+  let changed = false;
+  Object.values(state.schedule).forEach(s => {
+    if (!s || !Array.isArray(s.exec) || s.exec.length === 0) return;
+    const idxHand = s.exec.findIndex(t => t && t.name === '初步移交采购核价');
+    const idxFinal = s.exec.findIndex(t => t && t.name === '确认最终内包材设计方案');
+    if (idxHand < 0 || idxFinal < 0) return;  // 缺关键行，不动（避免误伤自定义项目）
+    if (idxHand > idxFinal) return;           // 已是新顺序（移交在最终方案之后），不动
+    const [hand] = s.exec.splice(idxHand, 1);  // 旧顺序：移交在最终方案之前 → 移到最终方案紧邻之后
+    const newFinal = s.exec.findIndex(t => t && t.name === '确认最终内包材设计方案');
+    s.exec.splice(newFinal + 1, 0, hand);
+    changed = true;
   });
   if (changed) saveLocal();
 }
@@ -5836,6 +5856,7 @@ async function init() {
   applyScheduleTemplateIfNeeded();
   backfillPlanFromBigGoods();
   ensureCompletedAt(); /* 第20轮：存量已 done 任务补 completedAt = t.end（视作准点完成），幂等 */
+  ensureStageOrderV1(); /* 2026-11-12：存量项目把「初步移交采购核价」移到「确认最终内包材设计方案」之后，幂等 */
   initSupabase();
   window.__app = { state, save: saveLocal, render: renderAll, undo: undoLastAction, undoLen: () => undoStack.length, connBtn: { savePos: saveConnPos, resetPos: resetConnPos, applyPos: applyConnPos } };
   _bootComplete = true; /* 初始化完成前不刷新排期表 updatedAt */
