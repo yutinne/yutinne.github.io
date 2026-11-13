@@ -1176,30 +1176,6 @@ body {
         </div>
 
         <div class="cmd-section" data-page-node-id="nIUdl7PMGZF9jE9zDD8IuI">
-          <div class="cmd-grid" data-page-node-id="2PCr6I0caAZvctBiOeIYqB">
-            <div class="cmd-card today" data-page-node-id="X3AsKeoBMe9Owhi9lRWdSO">
-              <div class="cmd-head" data-page-node-id="zr1dTXbPzK0CK8OVF3GmeQ">
-                <div class="cmd-title" data-page-node-id="mN2G6GCPz9fQyrQqHT5ZPH"><span class="cmd-ico" style="background: var(--green-bg); color: var(--green);" data-page-node-id="TmmV8DQWRlXYCquUuRXlFi">✓</span> 今日重点</div>
-                <div class="cmd-head-right" data-page-node-id="bFqXHKCE8kdefRuLilk6Up">
-                  <button class="mini-btn danger" id="clearDoneTodayBtn" data-act="clear-done-today" title="一键删除所有已办（已完成）事项，历史记录中仍可查看" style="display:none;" data-page-node-id="56Y5wvT8sbifQWETjaWbGS">清空已办</button>
-                  <button class="mini-btn" id="addTodayBtn" data-page-node-id="FGu1Yk8Esl0LHvcZdFeX80">+ 添加</button>
-                  <div class="cmd-count" id="todayCount" data-page-node-id="OMiXVFPUmJpYTiuU1JzHm3">0</div>
-                </div>
-              </div>
-              <div class="task-list" id="todayList" data-page-node-id="RrpkbXq3qSnq8QyAUu3A3w"></div>
-            </div>
-            <div class="cmd-card watch" data-page-node-id="uegvL4HehgndsPwPQiyC5E">
-              <div class="cmd-head" data-page-node-id="YpnIzp8GN1XDCxbIfqYiiA">
-                <div class="cmd-title" data-page-node-id="x4MFSTyfiX1DZuX6wZ5tV1"><span class="cmd-ico" style="background: var(--teal-bg); color: var(--teal-dark);" data-page-node-id="9fAF8kvBprpS2mPZr651pF">👁</span> 需要关注 <span class="chips" style="font-weight: 400; font-size: 10px;" data-page-node-id="BEjnbihda5ZLg5Cc3cCmBy">⋮⋮ 拖动排序</span></div>
-                <div class="cmd-head-right" data-page-node-id="0JTSqaFNsYuKWyHk6ryZdy">
-                  <button class="mini-btn danger" id="clearDoneWatchBtn" data-act="clear-done-watch" title="一键删除所有已办（已完成）事项，历史记录中仍可查看" style="display:none;">清空已办</button>
-                  <button class="mini-btn" id="addWatchBtn" data-page-node-id="LrdbjYOF4QSTuFOIK1AOZ5">+ 添加</button>
-                  <div class="cmd-count" id="watchCount" data-page-node-id="ajzk67rqq3jKC4MyLOgusA">0</div>
-                </div>
-              </div>
-              <div class="task-list" id="watchList" data-page-node-id="MF0pw0z4rmbpEcspmmNNmn"></div>
-            </div>
-          </div>
 
           <div class="cmd-grid" data-page-node-id="dmmZocNyN5nA5IzIOHL8EI">
             <div class="cmd-card urgent" data-page-node-id="BveEjxDwxhlaBF0r9PsE8N">
@@ -2197,34 +2173,6 @@ function renderOverview() {
   });
   if (state.delayedItems.length === 0) dl.innerHTML = '<div class="empty" style="padding:14px;font-size:12px;">暂无延期预警</div>';
 
-  const tl = $('#todayList');
-  /* 第40轮：完成项常驻底部 —— 渲染前兜底分组（未完成在上、已完成在下，各自保持原相对顺序） */
-  state.todayItems = sortDoneLast(state.todayItems, 'done');
-  state.watchItems = sortDoneLast(state.watchItems, 'resolved');
-  tl.innerHTML = '';
-  state.todayItems.forEach(t => tl.appendChild(renderTaskRow(t, 'today')));
-  if (state.todayItems.length === 0) tl.innerHTML = '<div class="empty">还没有今日重点，点右上方"+ 添加"</div>';
-  setupDragSort(tl, 'todayItems');
-  const todayDone = state.todayItems.filter(t => t.done).length;
-  $('#todayCount').textContent = state.todayItems.filter(t => !t.done).length;
-  const cdb = $('#clearDoneTodayBtn');
-  if (cdb) {
-    cdb.style.display = todayDone > 0 ? '' : 'none';
-    cdb.textContent = '清空已办(' + todayDone + ')';
-  }
-
-  const wl = $('#watchList');
-  wl.innerHTML = '';
-  state.watchItems.forEach(w => wl.appendChild(renderWatchRow(w)));
-  if (state.watchItems.length === 0) wl.innerHTML = '<div class="empty">还没有需要关注的事项，点右上方"+ 添加"</div>';
-  $('#watchCount').textContent = state.watchItems.filter(w => !w.resolved).length;
-  const watchDone = state.watchItems.filter(w => w.resolved).length;
-  const cwb = $('#clearDoneWatchBtn');
-  if (cwb) {
-    cwb.style.display = watchDone > 0 ? '' : 'none';
-    cwb.textContent = '清空已办(' + watchDone + ')';
-  }
-  setupDragSort(wl, 'watchItems');
 
   renderWeekTasks();
   renderHistory();
@@ -5520,8 +5468,7 @@ $('#modalClose').addEventListener('click', closeModal);
 $('#modalMask').addEventListener('click', (e) => { if (e.target.id === 'modalMask') closeModal(); });
 $('#quoteEdit').addEventListener('click', editQuote);
 $('#userCard').addEventListener('click', editUser);
-$('#addTodayBtn').addEventListener('click', () => openAddTaskModal('today'));
-$('#addWatchBtn').addEventListener('click', () => openAddTaskModal('watch'));
+/* 今日重点/需要关注 的「+ 添加」按钮已随模块移除（2026-11-13） */
 $('#addProjectBtn').addEventListener('click', () => openProjectModal('__new'));
 $('#addUrgentBtn').addEventListener('click', () => openAddUrgentModal());
 $('#addInspBtn').addEventListener('click', addInspiration);
