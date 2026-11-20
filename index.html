@@ -478,6 +478,16 @@ body {
 .archive-group-title .ag-count { font-size: 11px; font-weight: 500; color: var(--ink-3); }
 .archive-card { position: relative; }
 .archive-card .arch-meta { font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+.archive-card .arch-note { font-size: 12px; color: var(--ink-2); margin-top: 8px; padding: 7px 9px; background: var(--cream); border-radius: 6px; line-height: 1.5; }
+.archive-card .arch-note b { color: var(--brown); font-weight: 600; }
+.archive-card .arch-note-empty { color: var(--ink-3); font-style: italic; }
+.archive-card .archive-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.archive-card .edit-note-btn {
+  display: inline-block; margin-top: 10px; font-size: 11px; padding: 5px 12px;
+  border-radius: 6px; border: 1px solid var(--brown); background: transparent; color: var(--brown);
+  cursor: pointer; font-weight: 600; transition: all .15s;
+}
+.archive-card .edit-note-btn:hover { background: var(--brown); color: #fff; }
 .archive-card .restore-btn {
   display: inline-block; margin-top: 10px; font-size: 11px; padding: 5px 12px;
   border-radius: 6px; border: 1px solid var(--teal); background: var(--teal-bg); color: var(--teal-dark);
@@ -1500,6 +1510,7 @@ const defaultState = {
   /* 第47轮：项目归档（软归档，数据全保留，可恢复）
      archived=true 的项目从「项目」页卡片列表收起；总览/排期表/甘特图仍照旧包含（用户确认口径）。
      archiveCategory: 'done'=项目完成 / 'paused'=项目暂停；archivedAt=归档时间。
+     archiveNote=归档状态备注（项目级字段，挂在 project 上）：完成自动写"项目到仓"，暂停手填当时所处状态。
      archivePrompted=已弹过自动归档提示的任务 id，防止同一任务反复提示（任务 id 级去重）。 */
   archivePrompted: [],
   /* 第30轮：周期口径开关配置。{ [项目id]: { 'm:阶段名' | 't:任务名': 'calendar' } }
@@ -2701,12 +2712,17 @@ function renderArchive() {
     return list.map(p => {
       const cat = p.archiveCategory === 'done' ? 'done' : 'paused';
       const when = p.archivedAt ? String(p.archivedAt).slice(0, 10) : '';
+      const note = p.archiveNote ? esc(p.archiveNote) : '<span class="arch-note-empty">未填写归档状态</span>';
       return `<div class="project-card archive-card cat-${p.categoryKey || 'film'}">
         <div class="project-cat">${esc(p.category || '')}</div>
         <h3 class="project-name">${esc(p.name)}</h3>
         <div class="project-next">归档分类：<span class="arch-label">${catLabel(cat)}</span></div>
+        <div class="arch-note"><b>归档状态：</b>${note}</div>
         <div class="arch-meta">${when ? '归档于 ' + esc(when) + ' · ' : ''}数据完整保留</div>
-        <button class="restore-btn" data-act="unarchive-project" data-id="${p.id}">恢复到项目列表</button>
+        <div class="archive-actions">
+          <button class="edit-note-btn" data-act="edit-archive-note" data-id="${p.id}">编辑状态</button>
+          <button class="restore-btn" data-act="unarchive-project" data-id="${p.id}">恢复到项目列表</button>
+        </div>
       </div>`;
     }).join('');
   };
@@ -2725,6 +2741,10 @@ function openArchiveModal(pid) {
       <label><input type="radio" name="arch-cat" value="done" checked> 项目完成</label>
       <label><input type="radio" name="arch-cat" value="paused"> 项目暂停</label>
     </div>
+    <div class="form-row" style="margin-top:12px;">
+      <label class="form-label">归档状态 <span style="font-weight:400;opacity:.6;">(选「项目完成」自动填"项目到仓"，可修改；选「项目暂停」请填当时所处状态)</span></label>
+      <input class="form-input" id="archNoteInput" value="项目到仓" placeholder="例：完成稳兼送检，还未进入备案检">
+    </div>
   `, `<button class="btn ghost" data-act="modal-close">取消</button><button class="btn" data-act="confirm-archive" data-id="${pid}" data-auto="0">确认归档</button>`);
 }
 /* 执行归档：写归档字段，不动 projects/schedule 数据本身 */
@@ -2734,6 +2754,10 @@ function doArchive(pid, category, fromAuto) {
   p.archived = true;
   p.archiveCategory = category === 'paused' ? 'paused' : 'done';
   p.archivedAt = new Date().toISOString();
+  /* 归档状态备注：读弹窗输入框；选"项目完成"但留空时兜底为"项目到仓" */
+  const noteEl = document.getElementById('archNoteInput');
+  const rawNote = noteEl ? String(noteEl.value || '').trim() : '';
+  p.archiveNote = rawNote || (p.archiveCategory === 'done' ? '项目到仓' : '');
   saveLocal(); closeModal();
   renderProjects(); renderArchive(); renderOverview(); renderSchedule(); renderGantt();
   toast('项目已归档到「' + (p.archiveCategory === 'done' ? '项目完成' : '项目暂停') + '」' + (fromAuto ? '（大货到仓完成）' : ''), 'success');
@@ -2745,8 +2769,29 @@ function unarchive(pid) {
   p.archived = false;
   delete p.archiveCategory;
   delete p.archivedAt;
+  delete p.archiveNote;
   saveLocal(); renderArchive(); renderProjects(); renderOverview();
   toast('项目已恢复到项目列表', 'success');
+}
+/* 编辑已归档项目的状态备注（含存量项目补填） */
+function openEditArchiveNoteModal(pid) {
+  const p = state.projects.find(x => x.id === pid);
+  if (!p) return;
+  openModal('编辑归档状态', `
+    <div style="font-size:13px;color:var(--ink-2);margin-bottom:8px;">「<strong>${esc(p.name)}</strong>」的归档状态备注，会显示在归档档案上。</div>
+    <div class="form-row">
+      <label class="form-label">归档状态</label>
+      <input class="form-input" id="archNoteInput" value="${esc(p.archiveNote || '')}" placeholder="例：完成稳兼送检，还未进入备案检">
+    </div>
+  `, `<button class="btn ghost" data-act="modal-close">取消</button><button class="btn" data-act="save-archive-note" data-id="${pid}">保存</button>`);
+}
+function saveArchiveNote(pid) {
+  const p = state.projects.find(x => x.id === pid);
+  if (!p || !p.archived) { closeModal(); return; }
+  const noteEl = document.getElementById('archNoteInput');
+  p.archiveNote = noteEl ? String(noteEl.value || '').trim() : '';
+  saveLocal(); closeModal(); renderArchive();
+  toast('归档状态已更新', 'success');
 }
 /* 自动归档提示：某项目的「大货到仓」任务被标记完成时弹确认框。
    按任务 id 去重（archivePrompted），同一任务只提示一次；用户取消也不再骚扰。 */
@@ -2770,6 +2815,10 @@ function maybePromptArchiveOnArrival(taskId) {
     <div class="form-radio-row">
       <label><input type="radio" name="arch-cat" value="done" checked> 项目完成</label>
       <label><input type="radio" name="arch-cat" value="paused"> 项目暂停</label>
+    </div>
+    <div class="form-row" style="margin-top:12px;">
+      <label class="form-label">归档状态 <span style="font-weight:400;opacity:.6;">(选「项目完成」自动填"项目到仓"，可修改；选「项目暂停」请填当时所处状态)</span></label>
+      <input class="form-input" id="archNoteInput" value="项目到仓" placeholder="例：完成稳兼送检，还未进入备案检">
     </div>
   `, `<button class="btn ghost" data-act="modal-close">稍后</button><button class="btn" data-act="confirm-archive" data-id="${hitPid}" data-auto="1">确认归档</button>`);
 }
@@ -5234,6 +5283,8 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'unarchive-project': unarchive(id); break;
+    case 'edit-archive-note': openEditArchiveNoteModal(id); break;
+    case 'save-archive-note': saveArchiveNote(id); break;
     case 'save-project': saveProject(id); break;
     case 'del-project': delProject(id); break;
     case 'save-sub': saveSubSection(pid); break;
@@ -5352,6 +5403,12 @@ document.addEventListener('input', (e) => {
 document.addEventListener('paste', (e) => { handleInspPaste(e); });
 
 document.addEventListener('change', (e) => {
+  /* 归档分类切换：完成→自动填"项目到仓"；暂停→清空让用户填当时状态 */
+  if (e.target.name === 'arch-cat') {
+    const nin = document.getElementById('archNoteInput');
+    if (nin) nin.value = (e.target.value === 'done') ? '项目到仓' : '';
+    return;
+  }
   /* === Avatar image upload === */
   if (e.target.id === 'uf-file') {
     const file = e.target.files[0];
