@@ -465,6 +465,31 @@ body {
 .project-card [contenteditable="true"]:hover { background: rgba(255,255,255,.55); }
 .project-card [contenteditable="true"]:focus { background: rgba(255,255,255,.92); padding: 1px 4px; box-shadow: 0 0 0 1.5px var(--brown); }
 .project-card .edit-hint { font-weight: 400; opacity: .55; font-size: 10px; }
+/* 第47轮：项目归档 —— 卡片归档按钮 + 归档页 */
+.project-card .archive-btn {
+  position: absolute; top: 10px; right: 12px; z-index: 2;
+  font-size: 10px; line-height: 1; padding: 5px 8px; border-radius: 6px;
+  border: 1px solid var(--line-2); background: var(--paper-2); color: var(--ink-3);
+  cursor: pointer; opacity: .55; transition: all .15s;
+}
+.project-card .archive-btn:hover { opacity: 1; color: var(--brown); border-color: var(--brown); background: var(--cream); }
+.archive-group { margin-top: 26px; }
+.archive-group-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+.archive-group-title .ag-count { font-size: 11px; font-weight: 500; color: var(--ink-3); }
+.archive-card { position: relative; }
+.archive-card .arch-meta { font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+.archive-card .restore-btn {
+  display: inline-block; margin-top: 10px; font-size: 11px; padding: 5px 12px;
+  border-radius: 6px; border: 1px solid var(--teal); background: var(--teal-bg); color: var(--teal-dark);
+  cursor: pointer; font-weight: 600; transition: all .15s;
+}
+.archive-card .restore-btn:hover { background: var(--teal); color: #fff; }
+.archive-card .arch-label {
+  display: inline-block; font-size: 10px; padding: 2px 8px; border-radius: 8px;
+  background: var(--cream); color: var(--brown); margin-left: 6px; vertical-align: middle;
+}
+.form-radio-row { display: flex; gap: 18px; margin: 6px 0 2px; }
+.form-radio-row label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
 .tabs-row {
   display: flex; align-items: center;
   margin-bottom: 20px; border-bottom: 1px solid var(--line);
@@ -1093,6 +1118,7 @@ body {
     <nav class="nav" data-page-node-id="ArgEmXuRWHFZv6aLpAizsp">
       <div class="nav-item active" data-page="overview" data-page-node-id="ugU10k2ca0EaebnWGszWJ5"><span class="ico" data-page-node-id="ZhKpWmlSDMz9Zcvny1SsO7">🏠</span>总览</div>
       <div class="nav-item" data-page="projects" data-page-node-id="mVUW0yjX2M3Oz1QxWHjQUt"><span class="ico" data-page-node-id="qA8BKzVAoHFyCeAC45oU6A">▦</span>项目</div>
+      <div class="nav-item" data-page="archive"><span class="ico">🗄</span>归档</div>
       <div class="nav-item" data-page="schedule" data-page-node-id="zGgPED0d9tqYamZK8b1lY2"><span class="ico" data-page-node-id="mNzRE1Ev0kdgNBBp3fjhwF">▤</span>排期表</div>
       <div class="nav-item" data-page="gantt" data-page-node-id="s0JFovP4SgQTLDtj7xpPLY"><span class="ico" data-page-node-id="tnU0Xnd7L5QHmpgRNyU1IP">▥</span>甘特图</div>
       <div class="nav-item" data-page="inspiration" data-page-node-id="GF2CqvmtfeKmbkWpu7CaJN"><span class="ico" data-page-node-id="B9rWs9tXnSWpiGCZw2naPt">💡</span>灵感</div>
@@ -1246,6 +1272,25 @@ body {
       <div class="page-title" style="font-size: 18px; font-weight: 600;" data-page-node-id="G5CdnsI8mEqQkoWAGw5zB8">我正在经营的几件大事</div>
       <div style="text-align: right; font-size: 12px; color: var(--ink-3);" id="projectCount" data-page-node-id="XEyLCSYAsxeN0ICq4sgiFZ">0 个项目</div>
       <div class="project-grid" id="projectGrid" data-page-node-id="Ehs59TdOgi8cD7RtEKdTBM"></div>
+    </div>
+
+    <!-- =================== Page: Archive (第47轮) =================== -->
+    <div class="page" id="page-archive">
+      <div class="page-header">
+        <div class="header-text">
+          <div class="page-date">ARCHIVE</div>
+          <h1 class="page-title" id="archTitle">项目归档</h1>
+          <div class="page-sub">归档项目的数据完整保留，随时可以恢复到项目列表。</div>
+        </div>
+      </div>
+      <div class="archive-group">
+        <div class="archive-group-title">✅ 项目完成 <span class="ag-count" id="archDoneCount">0 个</span></div>
+        <div class="project-grid" id="archiveDoneGrid"></div>
+      </div>
+      <div class="archive-group">
+        <div class="archive-group-title">⏸ 项目暂停 <span class="ag-count" id="archPausedCount">0 个</span></div>
+        <div class="project-grid" id="archivePausedGrid"></div>
+      </div>
     </div>
 
     <!-- =================== Page: Schedule =================== -->
@@ -1452,6 +1497,11 @@ const defaultState = {
      hidden = 用户从本周任务隐藏的排期任务 execId（排期表不受影响）
      order  = 用户拖拽后的显示顺序（execId 或 'c:'+custom.id），空数组 = 按结束时间自动排序 */
   weekTasks: { custom: [], hidden: [], order: [] },
+  /* 第47轮：项目归档（软归档，数据全保留，可恢复）
+     archived=true 的项目从「项目」页卡片列表收起；总览/排期表/甘特图仍照旧包含（用户确认口径）。
+     archiveCategory: 'done'=项目完成 / 'paused'=项目暂停；archivedAt=归档时间。
+     archivePrompted=已弹过自动归档提示的任务 id，防止同一任务反复提示（任务 id 级去重）。 */
+  archivePrompted: [],
   /* 第30轮：周期口径开关配置。{ [项目id]: { 'm:阶段名' | 't:任务名': 'calendar' } }
      未出现的键一律视为 'workday'（默认工作日，与历史数据一致）。
      可切换范围见 MASK_MODULES / MASK_TASKS / isColorTaskName。 */
@@ -2083,12 +2133,13 @@ function go(page) {
   const el = $('#page-' + page);
   if (el) el.classList.add('active');
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
-  const titles = { overview: '总览', projects: '项目', schedule: '排期表', gantt: '甘特图', inspiration: '灵感', review: '复盘' };
+  const titles = { overview: '总览', projects: '项目', archive: '归档', schedule: '排期表', gantt: '甘特图', inspiration: '灵感', review: '复盘' };
   $('#mobileTitle').textContent = titles[page] || '';
   $('#sidebar').classList.remove('open');
   $('#scrim').classList.remove('show');
   if (page === 'overview') renderOverview();
   else if (page === 'projects') renderProjects();
+  else if (page === 'archive') renderArchive();
   else if (page === 'schedule') renderSchedule();
   else if (page === 'gantt') renderGantt();
   else if (page === 'inspiration') renderInspiration();
@@ -2097,7 +2148,7 @@ function go(page) {
 }
 
 function renderAll() {
-  renderOverview(); renderProjects(); renderSchedule(); renderGantt(); renderInspiration(); renderReview(); renderUser(); renderQuote();
+  renderOverview(); renderProjects(); renderArchive(); renderSchedule(); renderGantt(); renderInspiration(); renderReview(); renderUser(); renderQuote();
 }
 
 /* ============== Overview ============== */
@@ -2593,10 +2644,11 @@ function moveProjectTo(dragPid, targetPid, before) {
 function renderProjects() {
   if (document.activeElement !== $('#projTitle')) $('#projTitle').textContent = state.pageTitles.projectsTitle;
   if (document.activeElement !== $('#projSub')) $('#projSub').textContent = state.pageTitles.projectsSub;
-  $('#projectCount').textContent = `${state.projects.length} 个项目`;
+  const visibleProjects = state.projects.filter(p => !p.archived);
+  $('#projectCount').textContent = `${visibleProjects.length} 个项目`;
   const grid = $('#projectGrid');
   grid.innerHTML = '';
-  state.projects.forEach(p => {
+  visibleProjects.forEach(p => {
     const card = document.createElement('div');
     card.className = 'project-card cat-' + (p.categoryKey || 'film');
     card.dataset.pid = p.id;
@@ -2616,8 +2668,9 @@ function renderProjects() {
       ? `<span class="next-manual-badge" data-act="next-restore-auto" title="当前为手动填写，不会随排期表更新 · 点击恢复自动识别（取未开始任务中距今天最近的）">手动 ↺</span>`
       : '';
     const milesHtml = renderMilestonesHtml(p.id);
-    card.innerHTML = `<div class="project-cat" contenteditable="true" data-field="proj.category" data-pid="${p.id}">${esc(p.category)}</div><h3 class="project-name" contenteditable="true" data-field="proj.name" data-pid="${p.id}">${esc(p.name)}</h3>${milesHtml}<div class="project-next">下一步: <strong contenteditable="true" data-field="proj.nextStep" data-pid="${p.id}">${esc(nextText)}</strong>${nextBadge}${manualBadge}</div><div class="project-dates"><span contenteditable="true" data-field="proj.startDate" data-pid="${p.id}">${esc(p.startDate)}</span> 开始 · <span contenteditable="true" data-field="proj.endDate" data-pid="${p.id}">${esc(p.endDate)}</span> 截止</div><div class="progress"><div class="progress-bar" style="width: ${p.progress}%"></div></div><div class="project-foot"><span>${daysBetween(p.startDate, p.endDate)} 个工作日</span><span class="pct">${p.progress}% 完成 · <span class="edit-hint">点文字可编辑</span></span></div>`;
+    card.innerHTML = `<button class="archive-btn" data-act="archive-project" data-id="${p.id}" title="归档这个项目（数据保留，可在「归档」页恢复）">归档</button><div class="project-cat" contenteditable="true" data-field="proj.category" data-pid="${p.id}">${esc(p.category)}</div><h3 class="project-name" contenteditable="true" data-field="proj.name" data-pid="${p.id}">${esc(p.name)}</h3>${milesHtml}<div class="project-next">下一步: <strong contenteditable="true" data-field="proj.nextStep" data-pid="${p.id}">${esc(nextText)}</strong>${nextBadge}${manualBadge}</div><div class="project-dates"><span contenteditable="true" data-field="proj.startDate" data-pid="${p.id}">${esc(p.startDate)}</span> 开始 · <span contenteditable="true" data-field="proj.endDate" data-pid="${p.id}">${esc(p.endDate)}</span> 截止</div><div class="progress"><div class="progress-bar" style="width: ${p.progress}%"></div></div><div class="project-foot"><span>${daysBetween(p.startDate, p.endDate)} 个工作日</span><span class="pct">${p.progress}% 完成 · <span class="edit-hint">点文字可编辑</span></span></div>`;
     card.addEventListener('click', (e) => {
+      if (e.target.closest('[data-act="archive-project"]')) return; /* 归档按钮由全局委托处理，不弹编辑窗 */
       if (e.target.closest('[data-act="next-restore-auto"]')) {
         p.nextStepManual = false;
         p.nextStep = '';
@@ -2630,7 +2683,95 @@ function renderProjects() {
     });
     grid.appendChild(card);
   });
-  if (state.projects.length === 0) grid.innerHTML = '<div class="empty">还没有项目，点上方"+ 新建项目"开始</div>';
+  if (visibleProjects.length === 0) grid.innerHTML = '<div class="empty">' + (state.projects.length > 0 ? '所有项目都已归档，可在左侧「归档」页查看或恢复' : '还没有项目，点上方"+ 新建项目"开始') + '</div>';
+}
+
+/* ===== 第47轮：项目归档（软归档，数据全保留，可恢复） =====
+   口径（用户确认）：归档项目只从「项目」页卡片列表收起；
+   总览统计 / 排期表 / 甘特图仍照旧包含归档项目（不牵连既有统计与联动）。 */
+function renderArchive() {
+  const doneWrap = $('#archiveDoneGrid'), pausedWrap = $('#archivePausedGrid');
+  if (!doneWrap || !pausedWrap) return;
+  const done = state.projects.filter(p => p.archived && p.archiveCategory === 'done');
+  const paused = state.projects.filter(p => p.archived && p.archiveCategory === 'paused');
+  const others = state.projects.filter(p => p.archived && !p.archiveCategory); /* 兼容异常值：归入暂停 */
+  const catLabel = c => c === 'done' ? '项目完成' : '项目暂停';
+  const build = (list) => {
+    if (list.length === 0) return '<div class="empty">暂无归档项目</div>';
+    return list.map(p => {
+      const cat = p.archiveCategory === 'done' ? 'done' : 'paused';
+      const when = p.archivedAt ? String(p.archivedAt).slice(0, 10) : '';
+      return `<div class="project-card archive-card cat-${p.categoryKey || 'film'}">
+        <div class="project-cat">${esc(p.category || '')}</div>
+        <h3 class="project-name">${esc(p.name)}</h3>
+        <div class="project-next">归档分类：<span class="arch-label">${catLabel(cat)}</span></div>
+        <div class="arch-meta">${when ? '归档于 ' + esc(when) + ' · ' : ''}数据完整保留</div>
+        <button class="restore-btn" data-act="unarchive-project" data-id="${p.id}">恢复到项目列表</button>
+      </div>`;
+    }).join('');
+  };
+  $('#archDoneCount').textContent = done.length + ' 个';
+  $('#archPausedCount').textContent = (paused.length + others.length) + ' 个';
+  doneWrap.innerHTML = build(done);
+  pausedWrap.innerHTML = build(paused.concat(others));
+}
+/* 手动归档：点卡片「归档」按钮 → 弹确认框（选分类） */
+function openArchiveModal(pid) {
+  const p = state.projects.find(x => x.id === pid);
+  if (!p) return;
+  openModal('归档项目', `
+    <div style="font-size:13px;color:var(--ink-2);margin-bottom:6px;">归档「<strong>${esc(p.name)}</strong>」？数据会完整保留，可在「归档」页恢复。</div>
+    <div class="form-radio-row">
+      <label><input type="radio" name="arch-cat" value="done" checked> 项目完成</label>
+      <label><input type="radio" name="arch-cat" value="paused"> 项目暂停</label>
+    </div>
+  `, `<button class="btn ghost" data-act="modal-close">取消</button><button class="btn" data-act="confirm-archive" data-id="${pid}" data-auto="0">确认归档</button>`);
+}
+/* 执行归档：写归档字段，不动 projects/schedule 数据本身 */
+function doArchive(pid, category, fromAuto) {
+  const p = state.projects.find(x => x.id === pid);
+  if (!p || p.archived) { closeModal(); return; }
+  p.archived = true;
+  p.archiveCategory = category === 'paused' ? 'paused' : 'done';
+  p.archivedAt = new Date().toISOString();
+  saveLocal(); closeModal();
+  renderProjects(); renderArchive(); renderOverview(); renderSchedule(); renderGantt();
+  toast('项目已归档到「' + (p.archiveCategory === 'done' ? '项目完成' : '项目暂停') + '」' + (fromAuto ? '（大货到仓完成）' : ''), 'success');
+}
+/* 恢复：清除归档字段，回到项目列表 */
+function unarchive(pid) {
+  const p = state.projects.find(x => x.id === pid);
+  if (!p) return;
+  p.archived = false;
+  delete p.archiveCategory;
+  delete p.archivedAt;
+  saveLocal(); renderArchive(); renderProjects(); renderOverview();
+  toast('项目已恢复到项目列表', 'success');
+}
+/* 自动归档提示：某项目的「大货到仓」任务被标记完成时弹确认框。
+   按任务 id 去重（archivePrompted），同一任务只提示一次；用户取消也不再骚扰。 */
+function maybePromptArchiveOnArrival(taskId) {
+  if (!taskId) return;
+  if (!Array.isArray(state.archivePrompted)) state.archivePrompted = [];
+  if (state.archivePrompted.includes(taskId)) return;
+  let hitPid = null;
+  for (const pid of Object.keys(state.schedule)) {
+    const rows = (state.schedule[pid] && state.schedule[pid].exec) || [];
+    const t = rows.find(x => x && x.id === taskId && x.name && String(x.name).trim().includes('大货到仓'));
+    if (t) { hitPid = pid; break; }
+  }
+  if (!hitPid) return;
+  const p = state.projects.find(x => x.id === hitPid);
+  if (!p || p.archived) return;
+  state.archivePrompted.push(taskId);
+  saveLocal();
+  openModal('大货到仓已完成', `
+    <div style="font-size:13px;color:var(--ink-2);margin-bottom:6px;">「<strong>${esc(p.name)}</strong>」的大货到仓已完成，是否归档这个项目？数据会完整保留，可随时恢复。</div>
+    <div class="form-radio-row">
+      <label><input type="radio" name="arch-cat" value="done" checked> 项目完成</label>
+      <label><input type="radio" name="arch-cat" value="paused"> 项目暂停</label>
+    </div>
+  `, `<button class="btn ghost" data-act="modal-close">稍后</button><button class="btn" data-act="confirm-archive" data-id="${hitPid}" data-auto="1">确认归档</button>`);
 }
 
 /* ===== 第41轮：项目卡片里程碑日期 =====
@@ -4560,6 +4701,8 @@ function resolveDelayed(id) {
     t.completedAt = new Date().toISOString(); /* 从延期预警确认完成时记录完成时刻 */
   }
   saveLocal(); renderOverview(); renderSchedule();
+  /* 第47轮：延期预警里确认完成「大货到仓」同样弹归档确认 */
+  if (t && t.name && String(t.name).trim().includes('大货到仓')) maybePromptArchiveOnArrival(taskId);
   toast('已标记为完成', 'success');
 }
 function editTaskField(type, id, field, value) {
@@ -4630,6 +4773,8 @@ function toggleExecStatus(id) {
   /* 切到完成时记录完成时刻；从完成切回不清空（保留历史以备再次完成时刷新） */
   if (t.statusState === 'done') t.completedAt = new Date().toISOString();
   saveLocal(); renderSchedule(); renderOverview(); renderGantt(); renderProjects();
+  /* 第47轮：「大货到仓」任务完成时弹归档确认（仅 done 那一刻，任务 id 级去重） */
+  if (t.statusState === 'done' && t.name && String(t.name).trim().includes('大货到仓')) maybePromptArchiveOnArrival(id);
 }
 function deleteExec(id) {
   Object.keys(state.schedule).forEach(pid => { state.schedule[pid].exec = state.schedule[pid].exec.filter(x => x.id !== id); });
@@ -5082,6 +5227,13 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'modal-close': closeModal(); break;
+    case 'archive-project': openArchiveModal(id); break;
+    case 'confirm-archive': {
+      const chosen = document.querySelector('input[name="arch-cat"]:checked');
+      doArchive(id, chosen ? chosen.value : 'done', t.dataset.auto === '1');
+      break;
+    }
+    case 'unarchive-project': unarchive(id); break;
     case 'save-project': saveProject(id); break;
     case 'del-project': delProject(id); break;
     case 'save-sub': saveSubSection(pid); break;
@@ -5278,10 +5430,13 @@ document.addEventListener('change', (e) => {
     const t = all.find(x => x.id === id);
     if (t) {
       /* 状态变更为 done 时记录完成时刻（仅非 done → done 那一刻写一次；改回再改回仍会刷新） */
-      if (val === 'done' && t.statusState !== 'done') t.completedAt = new Date().toISOString();
+      const justDone = (val === 'done' && t.statusState !== 'done');
+      if (justDone) t.completedAt = new Date().toISOString();
       t.statusState = val;
       t.status = { todo: '未开始', progress: '进行中', done: '已完成', blocked: '阻塞' }[val];
       saveLocal(); renderOverview(); renderSchedule();
+      /* 第47轮：「大货到仓」经下拉框改为完成时同样弹归档确认 */
+      if (justDone && t.name && String(t.name).trim().includes('大货到仓')) maybePromptArchiveOnArrival(id);
     }
   }
 });
