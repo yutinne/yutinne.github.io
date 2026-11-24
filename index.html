@@ -1191,7 +1191,7 @@ body {
         <div class="stat-card" data-page-node-id="oyYBz3EMvOG4QJHJT1DBhy">
           <div class="stat-label" data-page-node-id="BJjpanv8hPLwN1CVyMA0KH">进行中</div>
           <div class="stat-value green" id="statActive" data-page-node-id="yYFSeZASOpbaMAavtasFEY">0</div>
-          <div class="stat-foot" data-page-node-id="kBWECrRU1TLxXINenFMZga">正常推进</div>
+          <div class="stat-foot" data-page-node-id="kBWECrRU1TLxXINenFMZga">排期完成1-99% · 不含归档</div>
         </div>
         <div class="stat-card" data-page-node-id="JaPZRCJE0AO486ilZebulL">
           <div class="stat-label" data-page-node-id="Tb5mS6FH1gL2NRqhkbRUsp">即将延期</div>
@@ -2183,7 +2183,9 @@ function renderOverview() {
   state.projects.forEach(p => { p.progress = calcProjectProgress(p.id); });
 
   const total = state.projects.length;
-  const active = state.projects.filter(p => p.progress > 0 && p.progress < 100).length;
+  /* 第52轮：「进行中」= 未归档 且 排期完成率 1~99%。
+     归档项目（完成/暂停推进）即使排表未全部打勾，也不再重复计入「进行中」，与「已归档」卡互斥。 */
+  const active = state.projects.filter(p => !p.archived && p.progress > 0 && p.progress < 100).length;
   let dueSoon = 0, dueLate = 0;
   const autoDelayed = [];
   const autoUrgent = [];
@@ -2226,7 +2228,7 @@ function renderOverview() {
   const archDone = archAll.filter(p => p.archiveCategory === 'done').length;
   const archPaused = archAll.length - archDone;
   $('#statArchived').textContent = archAll.length;
-  $('#statArchivedBreak').textContent = '完成 ' + archDone + ' · 暂停 ' + archPaused;
+  $('#statArchivedBreak').textContent = '完成 ' + archDone + ' · 暂停 ' + archPaused + ' · 不计入进行中';
 
   $('#urgentCount').textContent = state.urgentItems.length;
   const ul = $('#urgentList');
