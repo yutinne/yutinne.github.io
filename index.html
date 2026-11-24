@@ -180,7 +180,7 @@ body {
   border-radius: 6px;
 }
 .page-sub { font-size: 13px; color: var(--ink-2); line-height: 1.6; }
-.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+.stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 24px; }
 .stat-card {
   background: var(--paper); border-radius: 12px;
   padding: 18px 20px; box-shadow: var(--shadow-sm);
@@ -194,6 +194,7 @@ body {
 .stat-value.red { color: var(--red); }
 .stat-value.orange { color: var(--orange); }
 .stat-value.teal { color: var(--teal-dark); }
+.stat-value.brown { color: var(--brown); }
 .stat-foot { font-size: 11px; color: var(--ink-3); }
 .section {
   background: var(--paper); border-radius: 12px;
@@ -1195,6 +1196,11 @@ body {
           <div class="stat-label" data-page-node-id="ew8P9vALXSQlIEdqtEwQlN">已延期</div>
           <div class="stat-value red" id="statDelay" data-page-node-id="gQLY6zZNDYn3GT9TiLZcSy">0</div>
           <div class="stat-foot" data-page-node-id="tOzF4ZfalOT47Q5UnG3por">需尽快处理</div>
+        </div>
+        <div class="stat-card" id="statArchivedCard">
+          <div class="stat-label">已归档项目</div>
+          <div class="stat-value brown" id="statArchived">0</div>
+          <div class="stat-foot" id="statArchivedBreak">完成 0 · 暂停 0</div>
         </div>
       </div>
 
@@ -2208,6 +2214,13 @@ function renderOverview() {
   $('#statActive').textContent = active;
   $('#statSoon').textContent = dueSoon;
   $('#statDelay').textContent = dueLate;
+  /* 第50轮：顶部「已归档项目」卡：总数 + 完成/暂停分类数量。
+     归档分类异常值（archived 但无 archiveCategory）归入暂停，与归档页口径一致。 */
+  const archAll = state.projects.filter(p => p.archived);
+  const archDone = archAll.filter(p => p.archiveCategory === 'done').length;
+  const archPaused = archAll.length - archDone;
+  $('#statArchived').textContent = archAll.length;
+  $('#statArchivedBreak').textContent = '完成 ' + archDone + ' · 暂停 ' + archPaused;
 
   $('#urgentCount').textContent = state.urgentItems.length;
   const ul = $('#urgentList');
