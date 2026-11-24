@@ -489,6 +489,12 @@ body {
   cursor: pointer; font-weight: 600; transition: all .15s;
 }
 .archive-card .edit-note-btn:hover { background: var(--brown); color: #fff; }
+.archive-card .preview-btn {
+  display: inline-block; margin-top: 10px; font-size: 11px; padding: 5px 12px;
+  border-radius: 6px; border: 1px solid var(--teal); background: var(--teal-bg); color: var(--teal-dark);
+  cursor: pointer; font-weight: 600; transition: all .15s;
+}
+.archive-card .preview-btn:hover { background: var(--teal); color: #fff; }
 .archive-card .restore-btn {
   display: inline-block; margin-top: 10px; font-size: 11px; padding: 5px 12px;
   border-radius: 6px; border: 1px solid var(--teal); background: var(--teal-bg); color: var(--teal-dark);
@@ -2416,6 +2422,8 @@ function renderWeekTasks() {
   const execEntries = [];
   Object.entries(state.schedule).forEach(([pid, s]) => {
     const proj = state.projects.find(p => p.id === pid);
+    /* 第51轮：归档项目（完成/暂停）的任务不进本周任务，与指挥中心口径一致 */
+    if (proj && proj.archived) return;
     const projName = proj ? proj.name : pid;
     (s.exec || []).forEach(t => {
       if ((wt.hidden || []).includes(t.id)) return;
@@ -2737,6 +2745,7 @@ function renderArchive() {
         <div class="arch-note"><b>归档状态：</b>${note}</div>
         <div class="arch-meta">${when ? '归档于 ' + esc(when) + ' · ' : ''}数据完整保留</div>
         <div class="archive-actions">
+          <button class="preview-btn" data-act="preview-archive-schedule" data-id="${p.id}">排期表预览</button>
           <button class="edit-note-btn" data-act="edit-archive-note" data-id="${p.id}">编辑状态</button>
           <button class="restore-btn" data-act="unarchive-project" data-id="${p.id}">恢复到项目列表</button>
         </div>
@@ -2787,7 +2796,10 @@ function unarchive(pid) {
   delete p.archiveCategory;
   delete p.archivedAt;
   delete p.archiveNote;
-  saveLocal(); renderArchive(); renderProjects(); renderOverview();
+  /* 第51轮：恢复后让排期表立即重新出现——若当前无有效选中项目则切到刚恢复的这个 */
+  const hasVisible = state.projects.some(x => !x.archived && x.id === currentScheduleProject);
+  if (!hasVisible) currentScheduleProject = pid;
+  saveLocal(); renderArchive(); renderProjects(); renderOverview(); renderSchedule(); renderGantt();
   toast('项目已恢复到项目列表', 'success');
 }
 /* 编辑已归档项目的状态备注（含存量项目补填） */
@@ -2809,6 +2821,65 @@ function saveArchiveNote(pid) {
   p.archiveNote = noteEl ? String(noteEl.value || '').trim() : '';
   saveLocal(); closeModal(); renderArchive();
   toast('归档状态已更新', 'success');
+}
+/* 第51轮：归档项目的排期表只读预览。
+   复用 state.schedule 数据生成纯静态表格（无 contenteditable / input / 按钮），只读不改数据。 */
+function openSchedulePreview(pid) {
+  const p = state.projects.find(x => x.id === pid);
+  const s = state.schedule[pid];
+  if (!p || !s) { toast('该项目暂无排期表数据', 'error'); return; }
+  const info = s.info || {};
+  const rows = s.exec || [];
+  const statusText = { todo: '未开始', progress: '进行中', done: '已完成', blocked: '阻塞' };
+  /* 基本信息（只读） */
+  const infoHtml = `
+    <div class="schedule-info" style="margin-bottom:16px;">
+      <div class="info-cell"><div class="info-label">项目名称:</div><div class="info-value">${esc(info.name || p.name)}</div></div>
+      <div class="info-cell"><div class="info-label">项目类别:</div><div class="info-value">${esc(info.category || p.category || '')}</div></div>
+      <div class="info-cell"><div class="info-label">项目经理:</div><div class="info-value">${esc(info.manager || '')}</div></div>
+      <div class="info-cell"><div class="info-label">协同部门:</div><div class="info-value">${esc(info.coordinator || '')}</div></div>
+      <div class="info-cell"><div class="info-label">总进度:</div><div class="info-value">${rows.length ? Math.round(rows.filter(t => t.statusState === 'done').length / rows.length * 100) : 0}% (${rows.filter(t => t.statusState === 'done').length}/${rows.length})</div></div>
+      <div class="info-cell"><div class="info-label">计划到仓时间:</div><div class="info-value">${esc(info.plan || '')}</div></div>
+      <div class="info-cell"><div class="info-label">开始日期:</div><div class="info-value">${esc(info.startDate || '')}</div></div>
+      <div class="info-cell"><div class="info-label">归档状态:</div><div class="info-value">${esc(p.archiveNote || '未填写')}</div></div>
+    </div>`;
+  /* 执行环节（只读表格，按子环节分组） */
+  const colKeys = getColKeys(pid);
+  const baseLabels = { module: '模块', name: '项目任务', start: '开始时间', end: '结束时间', days: '周期(天)', owner: '责任人', risk: '风险警示', status: '状态', note: '备注' };
+  const labels = colKeys.map(k => k.startsWith('x_') ? esc((s.extraCols || []).find(c => 'x_' + c.id === k)?.name || '') : (baseLabels[k] || k));
+  const thead = `<tr>${labels.map(l => `<th>${l}</th>`).join('')}</tr>`;
+  const subs = {};
+  rows.forEach(r => { const key = r.sub || '执行环节'; if (!subs[key]) subs[key] = []; subs[key].push(r); });
+  const cellText = (r, ck) => {
+    if (ck === 'module') return esc(r.module || '');
+    if (ck === 'name') return esc(r.name || '');
+    if (ck === 'start' || ck === 'end') return esc(r[ck] || '');
+    if (ck === 'days') return esc(String(r.days || ''));
+    if (ck === 'owner') return esc((r.owner || '').split(',').filter(Boolean).join('、'));
+    if (ck === 'risk') return esc(r.riskManual ? (r.risk || '') : (assessRisk(r) || ''));
+    if (ck === 'status') return esc(statusText[r.statusState] || r.status || '');
+    if (ck === 'note') return esc(r.note || '');
+    if (ck.startsWith('x_')) return esc((r.ext || {})[ck.slice(2)] || '');
+    return '';
+  };
+  let tableHtml = '';
+  Object.keys(subs).forEach(subName => {
+    tableHtml += `<div class="exec-subsection"><div class="exec-subhead">${esc(subName)}</div><div class="exec-table-wrap"><table class="exec-table"><thead>${thead}</thead><tbody>`;
+    subs[subName].forEach(r => {
+      tableHtml += '<tr>' + colKeys.map(ck => {
+        const cls = ck === 'note' ? ' style="color:#c0392b;font-weight:700;"' : '';
+        return `<td${cls}>${cellText(r, ck)}</td>`;
+      }).join('') + '</tr>';
+    });
+    tableHtml += '</tbody></table></div></div>';
+  });
+  if (!rows.length) tableHtml = '<div class="empty">该项目暂无执行环节</div>';
+  openModal('排期表预览 · ' + p.name, `
+    <div style="font-size:12px;color:var(--ink-3);margin-bottom:10px;">只读预览 · 归档项目数据完整保留</div>
+    ${infoHtml}
+    <div class="exec-banner" style="margin-bottom:8px;">执行环节</div>
+    ${tableHtml}
+  `, '<button class="btn ghost" data-act="modal-close">关闭</button>', true);
 }
 /* 自动归档提示：某项目的「大货到仓」任务被标记完成时弹确认框。
    按任务 id 去重（archivePrompted），同一任务只提示一次；用户取消也不再骚扰。 */
@@ -2879,7 +2950,13 @@ function daysBetween(a, b) {
 function renderScheduleTabs() {
   const tabs = $('#scheduleTabs');
   tabs.innerHTML = '';
-  state.projects.forEach(p => {
+  /* 第51轮：归档项目不在排期表标签栏显示；当前选中若已归档则兜底切到首个未归档项目 */
+  const schedProjects = state.projects.filter(p => !p.archived);
+  const curStillVisible = schedProjects.some(p => p.id === currentScheduleProject);
+  if (!curStillVisible) {
+    currentScheduleProject = schedProjects.length ? schedProjects[0].id : null;
+  }
+  schedProjects.forEach(p => {
     const t = document.createElement('div');
     t.className = 'tab' + (p.id === currentScheduleProject ? ' active' : '');
     t.draggable = true;
@@ -3821,6 +3898,8 @@ function renderGantt() {
   Object.entries(state.schedule).forEach(([pid, s]) => {
     const proj = state.projects.find(p => p.id === pid);
     if (!proj) return;
+    /* 第51轮：归档项目不进甘特图（含图例），与排期表口径一致；恢复归档后自然回来 */
+    if (proj.archived) return;
     (s.exec || []).forEach(t => {
       const sd = parseCnDate(t.start);
       const ed = parseCnDate(t.end);
@@ -4563,13 +4642,19 @@ function renderReview() {
 /* =====================================================================
    MODAL
    ===================================================================== */
-function openModal(title, bodyHtml, footHtml) {
+function openModal(title, bodyHtml, footHtml, wide) {
   $('#modalTitle').textContent = title;
   $('#modalBody').innerHTML = bodyHtml;
   $('#modalFoot').innerHTML = footHtml || '<button class="btn ghost" data-act="modal-close">关闭</button>';
+  const modalEl = $('#modal');
+  if (modalEl) modalEl.style.maxWidth = wide ? '1120px' : ''; /* 第51轮：宽版弹窗用于排期表预览 */
   $('#modalMask').classList.add('show');
 }
-function closeModal() { $('#modalMask').classList.remove('show'); }
+function closeModal() {
+  $('#modalMask').classList.remove('show');
+  const modalEl = $('#modal');
+  if (modalEl) modalEl.style.maxWidth = ''; /* 复位宽度，避免影响下次普通弹窗 */
+}
 
 function openProjectModal(pid) {
   const isNew = pid === '__new';
@@ -5302,6 +5387,7 @@ document.addEventListener('click', (e) => {
     case 'unarchive-project': unarchive(id); break;
     case 'edit-archive-note': openEditArchiveNoteModal(id); break;
     case 'save-archive-note': saveArchiveNote(id); break;
+    case 'preview-archive-schedule': openSchedulePreview(id); break;
     case 'save-project': saveProject(id); break;
     case 'del-project': delProject(id); break;
     case 'save-sub': saveSubSection(pid); break;
