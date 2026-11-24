@@ -2178,6 +2178,10 @@ function renderOverview() {
   const manualUrgentIds = state.urgentItems.filter(u => !u.auto).map(u => u.id);
   Object.entries(state.schedule).forEach(([pid, s]) => {
     const proj = state.projects.find(p => p.id === pid);
+    /* 第49轮：归档项目（项目完成/暂停推进）不再参与自动提醒：
+       跳过其全部任务 → 不进延期预警、不进紧急处理(即将到期)、不计入顶部即将延期/已延期数字。
+       仅渲染层跳过，不动 projects/schedule 任何数据；恢复归档后提醒自然回来。 */
+    if (proj && proj.archived) return;
     const projName = proj ? proj.name : '';
     (s.exec || []).forEach(t => {
       if (t.statusState === 'done') return;
