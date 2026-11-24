@@ -180,7 +180,7 @@ body {
   border-radius: 6px;
 }
 .page-sub { font-size: 13px; color: var(--ink-2); line-height: 1.6; }
-.stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 24px; }
+.stat-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-bottom: 24px; }
 .stat-card {
   background: var(--paper); border-radius: 12px;
   padding: 18px 20px; box-shadow: var(--shadow-sm);
@@ -1188,6 +1188,11 @@ body {
           <div class="stat-value teal" id="statTotal" data-page-node-id="9QltgDJOe1gUlCXKJQCP20">0</div>
           <div class="stat-foot" data-page-node-id="IggZT6t3CSktFV3PQSYKJN">全部项目</div>
         </div>
+        <div class="stat-card" id="statIdleCard">
+          <div class="stat-label">待启动</div>
+          <div class="stat-value" id="statIdle">0</div>
+          <div class="stat-foot">排期完成0% · 不含归档</div>
+        </div>
         <div class="stat-card" data-page-node-id="oyYBz3EMvOG4QJHJT1DBhy">
           <div class="stat-label" data-page-node-id="BJjpanv8hPLwN1CVyMA0KH">进行中</div>
           <div class="stat-value green" id="statActive" data-page-node-id="yYFSeZASOpbaMAavtasFEY">0</div>
@@ -1525,6 +1530,8 @@ const defaultState = {
      archiveNote=归档状态备注（项目级字段，挂在 project 上）：完成自动写"项目到仓"，暂停手填当时所处状态。
      archivePrompted=已弹过自动归档提示的任务 id，防止同一任务反复提示（任务 id 级去重）。 */
   archivePrompted: [],
+  /* 第53轮：完成率100%自动归档提示，按项目 id 去重（与大货到仓的 task id 级去重分开）。 */
+  archivePromptedComplete: [],
   /* 第30轮：周期口径开关配置。{ [项目id]: { 'm:阶段名' | 't:任务名': 'calendar' } }
      未出现的键一律视为 'workday'（默认工作日，与历史数据一致）。
      可切换范围见 MASK_MODULES / MASK_TASKS / isColorTaskName。 */
@@ -2186,6 +2193,9 @@ function renderOverview() {
   /* 第52轮：「进行中」= 未归档 且 排期完成率 1~99%。
      归档项目（完成/暂停推进）即使排表未全部打勾，也不再重复计入「进行中」，与「已归档」卡互斥。 */
   const active = state.projects.filter(p => !p.archived && p.progress > 0 && p.progress < 100).length;
+  /* 第53轮：待启动 = 未归档 且 完成率=0%（排期一个环节都没打勾）。
+     与进行中(1-99%)、已归档互斥；完成率100%未归档的项目会由自动归档提示引导归档，不落任何卡。 */
+  const idle = state.projects.filter(p => !p.archived && p.progress === 0).length;
   let dueSoon = 0, dueLate = 0;
   const autoDelayed = [];
   const autoUrgent = [];
@@ -2219,6 +2229,7 @@ function renderOverview() {
   state.delayedItems = autoDelayed;
   state.urgentItems = [...state.urgentItems.filter(u => manualUrgentIds.includes(u.id)), ...autoUrgent];
   $('#statTotal').textContent = total;
+  $('#statIdle').textContent = idle;
   $('#statActive').textContent = active;
   $('#statSoon').textContent = dueSoon;
   $('#statDelay').textContent = dueLate;
@@ -2788,7 +2799,8 @@ function doArchive(pid, category, fromAuto) {
   p.archiveNote = rawNote || (p.archiveCategory === 'done' ? '项目到仓' : '');
   saveLocal(); closeModal();
   renderProjects(); renderArchive(); renderOverview(); renderSchedule(); renderGantt();
-  toast('项目已归档到「' + (p.archiveCategory === 'done' ? '项目完成' : '项目暂停') + '」' + (fromAuto ? '（大货到仓完成）' : ''), 'success');
+  const autoTag = fromAuto === 2 ? '（排期全部完成）' : (fromAuto ? '（大货到仓完成）' : '');
+  toast('项目已归档到「' + (p.archiveCategory === 'done' ? '项目完成' : '项目暂停') + '」' + autoTag, 'success');
 }
 /* 恢复：清除归档字段，回到项目列表 */
 function unarchive(pid) {
@@ -2911,6 +2923,39 @@ function maybePromptArchiveOnArrival(taskId) {
       <input class="form-input" id="archNoteInput" value="项目到仓" placeholder="例：完成稳兼送检，还未进入备案检">
     </div>
   `, `<button class="btn ghost" data-act="modal-close">稍后</button><button class="btn" data-act="confirm-archive" data-id="${hitPid}" data-auto="1">确认归档</button>`);
+}
+/* 第53轮：完成率100%自动归档提示 —— 项目排期全部打勾且未归档时弹确认框。
+   与大货到仓提示互斥：任一弹窗正在显示时不重复弹；按项目 id 去重（archivePromptedComplete）。
+   顺带保证「待启动(0%)+进行中(1-99%)+已归档」+ 本提示引导归档的100%项目 = 总数。 */
+function maybePromptArchiveOnComplete(pid) {
+  if (!pid) return;
+  /* 已有归档弹窗在显示（多半是大货到仓提示）→ 不重复弹 */
+  const mask = $('#modalMask');
+  if (mask && mask.classList.contains('show')) return;
+  const p = state.projects.find(x => x.id === pid);
+  if (!p || p.archived) return;
+  if (calcProjectProgress(pid) !== 100) return;
+  if (!Array.isArray(state.archivePromptedComplete)) state.archivePromptedComplete = [];
+  if (state.archivePromptedComplete.includes(pid)) return;
+  state.archivePromptedComplete.push(pid);
+  saveLocal();
+  openModal('项目排期已全部完成', `
+    <div style="font-size:13px;color:var(--ink-2);margin-bottom:6px;">「<strong>${esc(p.name)}</strong>」的排期任务已全部完成，是否归档这个项目？数据会完整保留，可随时恢复。</div>
+    <div class="form-radio-row">
+      <label><input type="radio" name="arch-cat" value="done" checked> 项目完成</label>
+      <label><input type="radio" name="arch-cat" value="paused"> 项目暂停</label>
+    </div>
+    <div class="form-row" style="margin-top:12px;">
+      <label class="form-label">归档状态 <span style="font-weight:400;opacity:.6;">(选「项目完成」自动填"项目到仓"，可修改；选「项目暂停」请填当时所处状态)</span></label>
+      <input class="form-input" id="archNoteInput" value="项目到仓" placeholder="例：完成稳兼送检，还未进入备案检">
+    </div>
+  `, `<button class="btn ghost" data-act="modal-close">稍后</button><button class="btn" data-act="confirm-archive" data-id="${pid}" data-auto="2">确认归档</button>`);
+}
+
+/* 任务 id → 所属项目 → 完成率100%提示的便捷包装，供三处任务完成入口调用 */
+function maybePromptArchiveOnCompleteByTask(taskId) {
+  const hit = getScheduleByTaskId(taskId);
+  if (hit) maybePromptArchiveOnComplete(hit.pid);
 }
 
 /* ===== 第41轮：项目卡片里程碑日期 =====
@@ -4856,6 +4901,8 @@ function resolveDelayed(id) {
   saveLocal(); renderOverview(); renderSchedule();
   /* 第47轮：延期预警里确认完成「大货到仓」同样弹归档确认 */
   if (t && t.name && String(t.name).trim().includes('大货到仓')) maybePromptArchiveOnArrival(taskId);
+  /* 第53轮：该任务完成后项目若100%完成 → 弹归档提示（大货到仓提示已在显示时自动让位） */
+  maybePromptArchiveOnCompleteByTask(taskId);
   toast('已标记为完成', 'success');
 }
 function editTaskField(type, id, field, value) {
@@ -4928,6 +4975,8 @@ function toggleExecStatus(id) {
   saveLocal(); renderSchedule(); renderOverview(); renderGantt(); renderProjects();
   /* 第47轮：「大货到仓」任务完成时弹归档确认（仅 done 那一刻，任务 id 级去重） */
   if (t.statusState === 'done' && t.name && String(t.name).trim().includes('大货到仓')) maybePromptArchiveOnArrival(id);
+  /* 第53轮：完成后项目若100%完成 → 弹归档提示 */
+  if (t.statusState === 'done') maybePromptArchiveOnCompleteByTask(id);
 }
 function deleteExec(id) {
   Object.keys(state.schedule).forEach(pid => { state.schedule[pid].exec = state.schedule[pid].exec.filter(x => x.id !== id); });
@@ -5383,7 +5432,7 @@ document.addEventListener('click', (e) => {
     case 'archive-project': openArchiveModal(id); break;
     case 'confirm-archive': {
       const chosen = document.querySelector('input[name="arch-cat"]:checked');
-      doArchive(id, chosen ? chosen.value : 'done', t.dataset.auto === '1');
+      doArchive(id, chosen ? chosen.value : 'done', Number(t.dataset.auto) || 0);
       break;
     }
     case 'unarchive-project': unarchive(id); break;
@@ -5599,6 +5648,8 @@ document.addEventListener('change', (e) => {
       saveLocal(); renderOverview(); renderSchedule();
       /* 第47轮：「大货到仓」经下拉框改为完成时同样弹归档确认 */
       if (justDone && t.name && String(t.name).trim().includes('大货到仓')) maybePromptArchiveOnArrival(id);
+      /* 第53轮：完成后项目若100%完成 → 弹归档提示 */
+      if (justDone) maybePromptArchiveOnCompleteByTask(id);
     }
   }
 });
